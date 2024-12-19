@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"attached_datasets": [
+		{
+			"id": "4af60a39-7c5d-4f6f-b451-110e22bb909a",
+			"mount": "smartspim_brain_masks"
+		}
+	]
+}
