@@ -3,6 +3,8 @@ from pathlib import Path
 from skimage.measure import regionprops
 import tifffile as tif
 import re
+import numpy as np
+from patchify import patchify
 
 def create_folder(dest_dir: str, verbose = False) -> None:
     """
@@ -34,12 +36,24 @@ def create_folder(dest_dir: str, verbose = False) -> None:
             if e.errno != os.errno.EEXIST:
                 raise
 
-def main(dataset_path, output_path):
+def main(
+    dataset_path,
+    output_path,
+    patch_size=64,
+    step_size=64
+):
     dataset_path = Path(dataset_path)
+    regex_id = r"_(\d{6})_"
 
     print("Generating dataset in ", output_path)
-    create_folder(output_path)
     output_path = Path(output_path)
+    
+    masks_output_path = output_path.joinpath("masks")
+    images_output_path = output_path.joinpath("images")
+    
+    create_folder(str(masks_output_path))
+    create_folder(str(images_output_path))
+    
 
     if dataset_path.exists():
         masks_paths = list(dataset_path.glob("*_postprocessed.tif*"))
@@ -60,10 +74,8 @@ def main(dataset_path, output_path):
                     offset=None
                 )
                 largest_region = max(props, key=lambda prop: prop.area)
-                
-                print("Props bbox: ", largest_region.bbox)
 
-                match = re.search(r"_(\d{6})_", str(mask_path))
+                match = re.search(regex_id, str(mask_path))
 
                 if match:
                     extracted_number = match.group(1)
@@ -73,10 +85,33 @@ def main(dataset_path, output_path):
                         'area': largest_region.area
                     }
                 else:
-                    print("No six-digit number found.")
+                    raise ValueError("No six-digit number found in path")
 
-                # Generating block
-                output_block_path = output_path.joinpath(extracted_number)
+                image_path = list(dataset_path.glob(f"SmartSPIM_{extracted_number}*.tif*"))[0]
+                image_block = tif.imread(image_path)
+                
+                extracted_mask_block = data_block[
+                    largest_region.bbox[0]: largest_region.bbox[3],
+                    largest_region.bbox[1]: largest_region.bbox[4],
+                    largest_region.bbox[2]: largest_region.bbox[5],
+                ]
+
+                extracted_image_block = image_block[
+                    largest_region.bbox[0]: largest_region.bbox[3],
+                    largest_region.bbox[1]: largest_region.bbox[4],
+                    largest_region.bbox[2]: largest_region.bbox[5],
+                ]
+
+                patch_image_mask_data(
+                    data_block=extracted_image_block,
+                    mask_block=extracted_mask_block,
+                    output_images=images_output_path,
+                    output_masks=masks_output_path,
+                    smartspim_id=extracted_number,
+                    patch_size=patch_size,
+                    step_size=step_size
+                )
+                print("*"*20)
             
         else:
             raise FileNotFoundError(f"Path {dataset_path} does not have tif files.")
@@ -84,8 +119,61 @@ def main(dataset_path, output_path):
     else:
         raise FileNotFoundError(f"Path {dataset_path} does not exist")    
     
+def patch_image_mask_data(
+    data_block,
+    mask_block,
+    output_images,
+    output_masks,
+    smartspim_id,
+    patch_size=64,
+    step_size=64
+):
+    print("input shapes ", data_block.shape, mask_block.shape)
+    output_images = Path(output_images)
+    output_masks = Path(output_masks)
+    
+    padding_needed = [(patch_size - (dim % patch_size)) % patch_size for dim in data_block.shape]
+    padding = [(p // 2, p - (p // 2)) for p in padding_needed]
+    padded_data_block = np.pad(data_block, padding, mode='constant', constant_values=0)
+    padded_mask_block = np.pad(mask_block, padding, mode='constant', constant_values=0)
+    
+    print("padded shapes ", padded_data_block.shape, padded_mask_block.shape)
+    
+    patched_image = patchify(
+        padded_data_block,
+        patch_size=(patch_size, patch_size, patch_size),
+        step=(step_size, step_size, step_size)
+    ).reshape(-1, patch_size, patch_size, patch_size)
 
+    patched_mask = patchify(
+        padded_mask_block,
+        patch_size=(patch_size, patch_size, patch_size),
+        step=(step_size, step_size, step_size)
+    ).reshape(-1, patch_size, patch_size, patch_size)
+    
+    n_blocks = patched_image.shape[0]
+
+    print(f"Processing {n_blocks} blocks for ID: {smartspim_id}")
+    saved_blocks = 0
+    
+    for i, patched_mask_block in enumerate(patched_mask):
+        if patched_mask_block.max() == 0:
+            continue
+        saved_blocks += 1
+        output_image_block = output_images.joinpath(f"{smartspim_id}_image_block_{i}.tif")
+        output_mask_block = output_masks.joinpath(f"{smartspim_id}_mask_block_{i}.tif")
+
+        patched_image_block = patched_image[i]
+        
+        tif.imwrite(output_image_block, patched_image_block)
+        tif.imwrite(output_mask_block, patched_mask_block)
+
+    print(f"Total blocks: {n_blocks} - Saved blocks: {saved_blocks} - Empty blocks: {n_blocks - saved_blocks}")
+    
 if __name__ == "__main__":
     main(
-        dataset_path="/data/smartspim_brain_masks"
+        dataset_path="/data/smartspim_brain_masks",
+        output_path="/scratch/dataset_patch_128_steps_64",
+        patch_size=128,
+        step_size=64
     )
