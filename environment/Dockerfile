@@ -16,4 +16,6 @@ RUN pip install --no-cache \
     tifffile \
     patchify \
     scipy \
-    scikit-image
+    scikit-image \
+    torchio \
+    numpy
