@@ -29,9 +29,15 @@ class ImageMaskDataset(Dataset):
         image_path = self.image_paths[idx]
         mask_path = self.mask_paths[idx]
 
-        image = np.array(tio.ScalarImage(image_path).numpy(), dtype=np.float32)
-        mask = np.array(tio.LabelMap(mask_path).numpy(), dtype=np.int32)
-
+        # image = np.array(tio.ScalarImage(image_path).numpy(), dtype=np.float32)
+        image = np.array(tif.imread(image_path)[None, ...], dtype=np.float32)
+        
+        # orig_image = image.copy()
+        # mask = np.array(tio.LabelMap(mask_path).numpy(), dtype=np.float32)
+        mask = np.array(tif.imread(mask_path)[None, ...], dtype=np.float32)
+        
+        # orig_mask = mask.copy()
+        
         # Apply transforms
         if self.transform:
             subject = tio.Subject(
@@ -42,28 +48,38 @@ class ImageMaskDataset(Dataset):
             image = transformed.image.data
             mask = transformed.mask.data
 
-        return image, mask
+        return image, mask#, orig_image, orig_mask
 
 def get_transforms():
     return tio.Compose([
         tio.RandomFlip(axes=(0, 1, 2), p=0.5),  # Randomly flip along x, y, z
         tio.RandomAffine(scales=(0.9, 1.1), degrees=10, isotropic=True, p=0.5),
         tio.RandomElasticDeformation(num_control_points=7, max_displacement=5.0, p=0.5),
-        tio.RescaleIntensity(out_min_max=(0, 1)),  # Normalize intensity values
+        tio.ZNormalization(),
+        # tio.RescaleIntensity(out_min_max=(0, 1)),  # Normalize intensity values
     ])
 
 def main():
-    images_dir = "/scratch/dataset_patch_128_steps_128/images"
-    masks_dir = "/scratch/dataset_patch_128_steps_128//masks"
+    images_dir = "/scratch/dataset_patch_128_steps_128/test/images"
+    masks_dir = "/scratch/dataset_patch_128_steps_128/test/masks"
     
     dataset = ImageMaskDataset(images_dir, masks_dir, transform=get_transforms())
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=8)
 
     for images, masks in dataloader:
         print("Batch of images shape:", images.shape)
         print("Batch of masks shape:", masks.shape)
-        break
-    
+        # print("Batch of original images shape:", orig_images.shape)
+        # print("Batch of original masks shape:", orig_masks.shape)
+
+        # for i in range(images.shape[0]):
+        #     print(f"Saving {i} from batch")
+            # np.save(f"/results/transformed_{i}.npy", images[i, 0, ...])
+            # np.save(f"/results/masks_{i}.npy", masks[i, 0, ...])
+            # np.save(f"/results/orig_images_{i}.npy", orig_images[i, 0, ...])
+            # np.save(f"/results/orig_masks_{i}.npy", orig_masks[i, 0, ...])
+        # break
+
 # Example usage
 if __name__ == "__main__":
     main()

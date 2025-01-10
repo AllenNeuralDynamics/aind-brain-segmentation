@@ -1,3 +1,3 @@
-# aind-capsule-template
+# aind-brain-segmentation
 
-Basic structure of a capsule to be customized as needed.
+Repository that hosts the code for the 3D unet for lightsheet whole-brain segmentation.

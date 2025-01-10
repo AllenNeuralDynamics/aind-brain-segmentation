@@ -18,4 +18,7 @@ RUN pip install --no-cache \
     scipy \
     scikit-image \
     torchio \
-    numpy
+    numpy \
+    lightning \
+    torchmetrics \
+    segmentation_models_pytorch

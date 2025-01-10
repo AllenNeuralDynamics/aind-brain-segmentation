@@ -39,6 +39,7 @@ def create_folder(dest_dir: str, verbose = False) -> None:
 def main(
     dataset_path,
     output_path,
+    test_brain_ids,
     patch_size=64,
     step_size=64
 ):
@@ -47,13 +48,10 @@ def main(
 
     print("Generating dataset in ", output_path)
     output_path = Path(output_path)
-    
-    masks_output_path = output_path.joinpath("masks")
-    images_output_path = output_path.joinpath("images")
-    
-    create_folder(str(masks_output_path))
-    create_folder(str(images_output_path))
-    
+
+    for fd in ['train', 'test']:
+        create_folder(str(output_path.joinpath(f"{fd}/images")))
+        create_folder(str(output_path.joinpath(f"{fd}/masks")))
 
     if dataset_path.exists():
         masks_paths = list(dataset_path.glob("*_postprocessed.tif*"))
@@ -87,6 +85,13 @@ def main(
                 else:
                     raise ValueError("No six-digit number found in path")
 
+                masks_output_path = output_path.joinpath("train/masks")
+                images_output_path = output_path.joinpath("train/images")
+
+                if extracted_number in test_brain_ids:
+                    masks_output_path = output_path.joinpath("test/masks")
+                    images_output_path = output_path.joinpath("test/images")
+                
                 image_path = list(dataset_path.glob(f"SmartSPIM_{extracted_number}*.tif*"))[0]
                 image_block = tif.imread(image_path)
                 
@@ -102,6 +107,7 @@ def main(
                     largest_region.bbox[2]: largest_region.bbox[5],
                 ]
 
+                print(f"Writing blocks from {extracted_number} to {images_output_path.parent}")
                 patch_image_mask_data(
                     data_block=extracted_image_block,
                     mask_block=extracted_mask_block,
@@ -171,9 +177,16 @@ def patch_image_mask_data(
     print(f"Total blocks: {n_blocks} - Saved blocks: {saved_blocks} - Empty blocks: {n_blocks - saved_blocks}")
     
 if __name__ == "__main__":
-    main(
-        dataset_path="/data/smartspim_brain_masks",
-        output_path="/scratch/dataset_patch_128_steps_64",
-        patch_size=128,
-        step_size=64
-    )
+    step_sizes = [64, 128]
+    patch_sizes = [64, 128]
+
+    for patch_size in patch_sizes:
+        for step_size in step_sizes:
+            print(f"Processing with patch size of {patch_size} and step size of {step_size}")
+            main(
+                dataset_path="/data/smartspim_brain_masks",
+                output_path=f"/scratch/dataset_patch_{patch_size}_steps_{step_size}",
+                test_brain_ids=['729674'],
+                patch_size=patch_size,
+                step_size=step_size
+            )
