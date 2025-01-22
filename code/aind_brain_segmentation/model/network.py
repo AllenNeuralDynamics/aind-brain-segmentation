@@ -17,6 +17,37 @@ from .layers.blocks import (ConvNextV2, ConvNextV2Block, ConvolutionalBlock,
                             DecoderUpsampleBlock, EncoderDecoderConnections,
                             PrintLayer, SegmentationHead)
 
+import torch.nn.functional as F
+
+class DiceFocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, smooth=1e-6):
+        super(DiceFocalLoss, self).__init__()
+        self.alpha = alpha  # Focal loss alpha (controls balance between classes)
+        self.gamma = gamma  # Focal loss gamma (controls focus on hard examples)
+        self.smooth = smooth  # Smoothing factor for Dice loss
+
+    def forward(self, logits, targets):
+        # Apply sigmoid to logits to get probabilities
+        probs = torch.sigmoid(logits)
+        
+        # Flatten tensors for Dice loss computation
+        probs_flat = probs.view(-1)
+        targets_flat = targets.view(-1)
+        
+        # Dice Loss
+        intersection = (probs_flat * targets_flat).sum()
+        dice_loss = 1 - (2. * intersection + self.smooth) / (
+            probs_flat.sum() + targets_flat.sum() + self.smooth
+        )
+        
+        # Focal Loss
+        bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
+        focal_loss = self.alpha * (1 - torch.exp(-bce_loss)) ** self.gamma * bce_loss
+        focal_loss = focal_loss.mean()
+        
+        # Combine Dice and Focal Losses
+        combined_loss = dice_loss + focal_loss
+        return combined_loss
 
 def create_logger(output_log_path: str) -> logging.Logger:
     """
@@ -327,9 +358,10 @@ class Neuratt(L.LightningModule):
         self.decoder_path = DecoderBlock()
 
         # Loss function
-        self.loss_fn = (
-            nn.BCEWithLogitsLoss()
-        )  # DiceLoss(BINARY_MODE)#, from_logits=True)
+        self.loss_fn = DiceFocalLoss(alpha=0.25, gamma=2, smooth=1e-6)
+        #(
+        #    nn.BCEWithLogitsLoss()
+        #)  # DiceLoss(BINARY_MODE)#, from_logits=True)
         ##nn.functional.binary_cross_entropy()
         # DiceLoss(BINARY_MODE, from_logits=True)
 
@@ -445,7 +477,27 @@ class Neuratt(L.LightningModule):
         prob_mask = decoder_result.sigmoid()
         pred_mask = (prob_mask > 0.5).float()
 
-        return (x, pred_mask)
+        dice = self.dice_score_metric(prob_mask, y)
+        jacc = self.jaccard_index_metric(pred_mask, y)
+        
+        metrics = {
+            'loss': loss.item(),
+            'dice': dice.item(),
+            'jacc': jacc.item()
+        }
+        
+        return (x, pred_mask, metrics)
+
+    def predict(self, batch, threshold=0.5, dataloader_idx=0):
+
+        encoder_result = self.encoder_path(batch)
+        skip_conns = self.encoder_path.get_skip_connections()
+        decoder_result = self.decoder_path(encoder_result, skip_conns)
+
+        prob_mask = decoder_result.sigmoid()
+        pred_mask = (prob_mask > threshold).float()
+        
+        return pred_mask, prob_mask
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.1)

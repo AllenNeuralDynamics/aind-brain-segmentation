@@ -13,6 +13,7 @@ RUN conda install -y \
     && conda clean -ya
 
 RUN pip install --no-cache \
+    git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@feat-updating-version \
     tifffile \
     patchify \
     scipy \
@@ -21,4 +22,6 @@ RUN pip install --no-cache \
     numpy \
     lightning \
     torchmetrics \
-    segmentation_models_pytorch
+    segmentation_models_pytorch \
+    wandb \
+    torchvision==0.18.1

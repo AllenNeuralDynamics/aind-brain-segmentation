@@ -30,12 +30,17 @@ from torch.utils.data import Subset
 
 def get_transforms():
     return tio.Compose([
-        tio.RandomFlip(axes=(0, 1, 2), p=0.5),  # Randomly flip along z, y, x
-        tio.RandomAffine(scales=(0.7, 0.5, 0.5), degrees=10, isotropic=False, p=0.5),
-        tio.RandomElasticDeformation(num_control_points=7, max_displacement=5.0, p=0.5),
-        tio.ZNormalization(),
+        tio.RandomFlip(
+            axes=(0, 1, 2),
+            p=0.5,
+            copy=False,
+        ),
+        tio.RandomAffine(scales=(0.7, 0.5, 0.5), degrees=10, isotropic=False, p=0.5, copy=False),
+        tio.RandomElasticDeformation(num_control_points=7, max_displacement=5.0, p=0.5, copy=False),
+        tio.ZNormalization(copy=False),
         # tio.RescaleIntensity(out_min_max=(0, 1)),  # Normalize intensity values
     ])
+
 
 def get_transforms_monai():
     return Compose([
@@ -216,7 +221,7 @@ def train(
         num_workers=num_workers,
     )
 
-    validation_path = Path(train_path)
+    validation_path = Path(validation_path)
     
     val_dataset = ImageMaskDataset(
         validation_path.joinpath('images'),
@@ -243,7 +248,7 @@ def train(
 
     if checkpoint_path:
         print(f"Loading path from {checkpoint_path}")
-        segmentation_model.load_from_checkpoint(checkpoint_path)
+        segmentation_model = Neuratt.load_from_checkpoint(checkpoint_path)
 
     # Checkpoints
     model_checkpoint = ModelCheckpoint(
@@ -276,7 +281,7 @@ def train(
         val_dataloaders=val_dataloader,
     )
 
-    predictions = trainer.predict(segmentation_model, neuron_dataset)
+    predictions = trainer.predict(segmentation_model, val_dataloader)
     # print(len(predictions))
     for i, (data, pred) in enumerate(predictions):
         np.save(file=f"{results_folder}/data_{i}.npy", arr=data)
@@ -288,7 +293,7 @@ if __name__ == "__main__":
     # previous_run_id = "your_run_id_here"
     logger = WandbLogger(
         project="whole_brain_seg",  # Replace with your W&B project name
-        name="model_v1",  # Replace with your specific experiment name
+        name="model_dice_focal",  # Replace with your specific experiment name
         save_dir="/results/whole_brain_seg",  # Local directory to save logs
         # id=previous_run_id,  # Use the previous run ID
         # resume="allow",
@@ -299,6 +304,7 @@ if __name__ == "__main__":
         logger=logger,
         batch_size=8,
         num_workers=8,
+        checkpoint_path="/results/whole_brain_seg/whole_brain_seg/0fp8w3op/checkpoints/best_model.ckpt"
     )
     # train_with_kfold(
     #     data_path="/scratch/dataset_patch_128_steps_64/train",

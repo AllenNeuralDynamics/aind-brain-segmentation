@@ -6,6 +6,7 @@ from torchvision import transforms
 import torchio as tio
 import tifffile as tif
 import numpy as np
+import gc
 
 class ImageMaskDataset(Dataset):
     def __init__(self, images_dir, masks_dir, transform=None):
@@ -47,6 +48,8 @@ class ImageMaskDataset(Dataset):
             transformed = self.transform(subject)
             image = transformed.image.data
             mask = transformed.mask.data
+
+        gc.collect()
 
         return image, mask#, orig_image, orig_mask
 
