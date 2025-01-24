@@ -372,14 +372,18 @@ class Neuratt(L.LightningModule):
 
         self.save_hyperparameters()
 
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        # x = self.transform(x)
-        # print(torch.min(x), torch.max(x))
-        # exit()
+    def forward(self, x):
+        """method used for inference input -> output"""
+
         encoder_result = self.encoder_path(x)
         skip_conns = self.encoder_path.get_skip_connections()
         decoder_result = self.decoder_path(encoder_result, skip_conns)
+        
+        return decoder_result
+        
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        decoder_result = self(x)
 
         # Loss function
         # loss = nn.functional.binary_cross_entropy(
@@ -389,8 +393,6 @@ class Neuratt(L.LightningModule):
 
         prob_mask = decoder_result.sigmoid()
         pred_mask = (prob_mask > 0.5).float()
-        # print(torch.unique(pred_mask), torch.unique(decoder_result), torch.unique(y))
-        # exit()
 
         self.log("train/loss", loss.item())
 
@@ -431,9 +433,7 @@ class Neuratt(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        encoder_result = self.encoder_path(x)
-        skip_conns = self.encoder_path.get_skip_connections()
-        decoder_result = self.decoder_path(encoder_result, skip_conns)
+        decoder_result = self(x)
         # loss = nn.functional.binary_cross_entropy(
         #     input=decoder_result, target=y
         # )
@@ -469,9 +469,7 @@ class Neuratt(L.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x, y = batch
 
-        encoder_result = self.encoder_path(x)
-        skip_conns = self.encoder_path.get_skip_connections()
-        decoder_result = self.decoder_path(encoder_result, skip_conns)
+        decoder_result = self(x)
         loss = self.loss_fn(decoder_result, y)
 
         prob_mask = decoder_result.sigmoid()
@@ -490,9 +488,7 @@ class Neuratt(L.LightningModule):
 
     def predict(self, batch, threshold=0.5, dataloader_idx=0):
 
-        encoder_result = self.encoder_path(batch)
-        skip_conns = self.encoder_path.get_skip_connections()
-        decoder_result = self.decoder_path(encoder_result, skip_conns)
+        decoder_result = self(x)
 
         prob_mask = decoder_result.sigmoid()
         pred_mask = (prob_mask > threshold).float()
@@ -500,7 +496,7 @@ class Neuratt(L.LightningModule):
         return pred_mask, prob_mask
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.1)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         return optimizer
 
 

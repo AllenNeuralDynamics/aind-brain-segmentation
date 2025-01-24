@@ -24,4 +24,5 @@ RUN pip install --no-cache \
     torchmetrics \
     segmentation_models_pytorch \
     wandb \
-    torchvision==0.18.1
+    torchvision==0.18.1 \
+    natsort
