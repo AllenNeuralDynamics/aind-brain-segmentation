@@ -111,7 +111,8 @@ def get_transforms():
         intensity_transform,
         tio.RandomBlur(std=(1, 4), p=0.5, copy=False),
         tio.RandomBiasField(coefficients=(0.1, 0.3), order=3, p=0.5, copy=False),
-        tio.ZNormalization(copy=False),
+        # tio.ZNormalization(copy=False),
+        tio.RescaleIntensity(out_min_max = (0, 1)),
         # tio.RescaleIntensity(out_min_max=(0, 1)),  # Normalize intensity values
     ])
 
@@ -334,11 +335,11 @@ def train(
     callbacks = [model_checkpoint]
 
     # Logging gradients
-    wandb.watch(
-        segmentation_model,
-        log='gradients',
-        log_freq=100,
-    )
+    # wandb.watch(
+    #     segmentation_model,
+    #     log='gradients',
+    #     log_freq=100,
+    # )
     
     # Trainer
     trainer = L.Trainer(
@@ -368,29 +369,31 @@ def train(
 
 
 if __name__ == "__main__":
-    # logger = CSVLogger("/results/whole_brain_seg", name="model-01")
+    logger = CSVLogger("/results/whole_brain_seg", name="model-01")
     # previous_run_id = "your_run_id_here"
-    project = "whole_brain_seg"
-    name = "dice-focal-clamp-intensity"
+    
+    # project = "whole_brain_seg"
+    # name = "model-convnextv2"
 
-    run = wandb.init(
-        project=project,
-        name=name,
-    )
+    # run = wandb.init(
+    #     project=project,
+    #     name=name,
+    # )
 
-    logger = WandbLogger(
-        project="whole_brain_seg",  # Replace with your W&B project name
-        name="model_dice_focal_clamp_intensity",  # Replace with your specific experiment name
-        save_dir="/results/whole_brain_seg",  # Local directory to save logs
-        # id=previous_run_id,  # Use the previous run ID
-        # resume="allow",
-    )
+    # logger = WandbLogger(
+    #     project=project,  # Replace with your W&B project name
+    #     name=name,  # Replace with your specific experiment name
+    #     save_dir=f"/results/{project}",  # Local directory to save logs
+    #     # id=previous_run_id,  # Use the previous run ID
+    #     # resume="allow",
+    # )
+    
     train(
-        train_path="/scratch/dataset_patch_128_steps_64/train",
-        validation_path="/scratch/dataset_patch_128_steps_64/test",
+        train_path="/scratch/dataset_patch_128_steps_64_clip_int_nocroptomask/train",
+        validation_path="/scratch/dataset_patch_128_steps_64_clip_int_nocroptomask/test",
         logger=logger,
-        batch_size=8,
-        num_workers=8,
+        batch_size=4,
+        num_workers=4,
         checkpoint_path=None
     )
     # "/results/whole_brain_seg/whole_brain_seg/0fp8w3op/checkpoints/best_model.ckpt"

@@ -7,6 +7,8 @@ import numpy as np
 from patchify import patchify
 from natsort import natsorted
 from skimage import io
+import warnings
+warnings.filterwarnings('ignore')
 
 def create_folder(dest_dir: str, verbose = False) -> None:
     """
@@ -49,6 +51,7 @@ def main(
     int_threshold=40,
     apply_percentile_norm=False,
     clip_int=True,
+    crop_to_mask=False,
 ):
     dataset_path = Path(dataset_path)
     regex_id = r"_(\d{6})_"
@@ -103,20 +106,47 @@ def main(
                 image_path = list(dataset_path.glob(f"SmartSPIM_{extracted_number}*.tif*"))[0]
                 # image_block = tif.imread(image_path)
                 image_block = io.imread(image_path)
-                
-                extracted_mask_block = data_block[
-                    largest_region.bbox[0]: largest_region.bbox[3],
-                    largest_region.bbox[1]: largest_region.bbox[4],
-                    largest_region.bbox[2]: largest_region.bbox[5],
-                ]
 
-                extracted_image_block = image_block[
-                    largest_region.bbox[0]: largest_region.bbox[3],
-                    largest_region.bbox[1]: largest_region.bbox[4],
-                    largest_region.bbox[2]: largest_region.bbox[5],
-                ]
+                crop_to_mask_region = (
+                    slice(None),
+                    slice(None),
+                    slice(None),
+                )
+
+                if crop_to_mask:
+                    region = (
+                        slice(largest_region.bbox[0], largest_region.bbox[3]),
+                        slice(largest_region.bbox[1], largest_region.bbox[4]),
+                        slice(largest_region.bbox[2], largest_region.bbox[5]),
+                    )
+                    print(f"Cropping to mask in region: {crop_to_mask_region}")
+                    
+                extracted_mask_block = data_block[crop_to_mask_region]
+                # [
+                #     largest_region.bbox[0]: largest_region.bbox[3],
+                #     largest_region.bbox[1]: largest_region.bbox[4],
+                #     largest_region.bbox[2]: largest_region.bbox[5],
+                # ]
+
+                extracted_image_block = image_block[crop_to_mask_region]
+                # [
+                #     largest_region.bbox[0]: largest_region.bbox[3],
+                #     largest_region.bbox[1]: largest_region.bbox[4],
+                #     largest_region.bbox[2]: largest_region.bbox[5],
+                # ]
+
+                extracted_mask_block = np.squeeze(extracted_mask_block)
+                extracted_image_block = np.squeeze(extracted_image_block)
+
+                if extracted_image_block.ndim != 3:
+                    raise ValueError(f"Image has the following shape: {extracted_image_block.shape}")
+
+                if extracted_mask_block.ndim != 3:
+                    raise ValueError(f"Image has the following shape: {extracted_mask_block.shape}")
 
                 print(f"Writing blocks from {extracted_number} to {images_output_path.parent}")
+                print(f"Image shape: {extracted_image_block.shape} - Mask shape: {extracted_mask_block.shape}")
+
                 patch_image_mask_data(
                     data_block=extracted_image_block,
                     mask_block=extracted_mask_block,
@@ -249,8 +279,9 @@ def patch_image_mask_data(
     saved_blocks = 0
     
     for i, patched_mask_block in enumerate(patched_mask):
-        if patched_mask_block.max() == 0:
-            continue
+        # if patched_mask_block.max() == 0:
+        #     continue
+
         saved_blocks += 1
         output_image_block = output_images.joinpath(f"{smartspim_id}_image_block_{i}.tif")
         output_mask_block = output_masks.joinpath(f"{smartspim_id}_mask_block_{i}.tif")
@@ -267,6 +298,7 @@ if __name__ == "__main__":
     patch_sizes = [128]#[64, 128]
     apply_percentile_norm = False
     clip_int = True
+    crop_to_mask = False
 
     for patch_size in patch_sizes:
         for step_size in step_sizes:
@@ -278,11 +310,16 @@ if __name__ == "__main__":
 
             if clip_int:
                 output_path = f"{output_path}_clip_int"
-            
+
+            if crop_to_mask:
+                output_path = f"{output_path}_croptomask"
+            else:
+                output_path = f"{output_path}_nocroptomask"
+                
             main(
                 dataset_path="/data/smartspim_brain_masks",
                 output_path=output_path,
-                test_brain_ids=['729674'],
+                test_brain_ids=['727461', '757189'],
                 patch_size=patch_size,
                 step_size=step_size,
                 pmin=1,
@@ -290,4 +327,5 @@ if __name__ == "__main__":
                 int_threshold=20,
                 apply_percentile_norm=apply_percentile_norm,
                 clip_int=clip_int,
+                crop_to_mask=crop_to_mask,
             )

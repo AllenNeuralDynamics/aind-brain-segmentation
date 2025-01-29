@@ -15,9 +15,9 @@ class PrintLayer(nn.Module):
     def __init__(self):
         super(PrintLayer, self).__init__()
 
-    def forward(self, x):
+    def forward(self, x, m=""):
         # Do your print / debug stuff here
-        print(x.shape)
+        print(m, x.shape)
         return x
 
 
@@ -95,7 +95,7 @@ class ConvNextV2Block(torch.nn.Module):
             device=device,
         )
         self.activation_layer = nn.GELU()  # nn.ReLU()
-        self.grn_norm = GRN(out_channels)  # point_wise_scaling *
+        self.grn_norm = GRN(point_wise_scaling * out_channels)  # point_wise_scaling *
         self.point_wise_conv2 = nn.Linear(
             in_features=point_wise_scaling * out_channels,
             out_features=out_channels,
@@ -108,21 +108,32 @@ class ConvNextV2Block(torch.nn.Module):
     def forward(self, input_feat: torch.Tensor):
         skip_con = input_feat
         input_feat = self.conv_layer(input_feat)
+
         # Changing channel axis to last
         # (N, C, D, H, W) -> (N, D, H, W, C)
-        input_feat = skip_con.permute(0, 2, 3, 4, 1)
+        # input_feat = skip_con.permute(0, 2, 3, 4, 1)
+        input_feat = input_feat.permute(0, 2, 3, 4, 1)
+        
         input_feat = self.layer_norm(input_feat)
         input_feat = self.point_wise_conv1(input_feat)
+        
         input_feat = self.activation_layer(input_feat)
+        
         input_feat = self.grn_norm(input_feat)
+        
         input_feat = self.point_wise_conv2(input_feat)
 
         # Back to channels in second pos
         # (N, D, H, W, C) -> (N, C, D, H, W)
-
         input_feat = input_feat.permute(0, 4, 1, 2, 3)
+        # print("Check: ", skip_con.shape, input_feat.shape)
 
-        input_feat = skip_con + self.drop_path(input_feat)
+        if skip_con.shape[1] == input_feat.shape[1]:
+            # print("Skip connection!")
+            input_feat = skip_con + self.drop_path(input_feat)
+        else:
+            input_feat = self.drop_path(input_feat)
+            
         return input_feat
 
 

@@ -102,7 +102,6 @@ class ConvNeXtV2Encoder(torch.nn.Module):
     def forward(self, x):
         return self._encoder.forward_features(x)
 
-
 class EncoderPath(nn.Module):
     """
     Encoder path of the Unet
@@ -110,89 +109,121 @@ class EncoderPath(nn.Module):
 
     def __init__(self, *args, **kwargs) -> None:
         super(EncoderPath, self).__init__(*args, **kwargs)
-        self.conv_1 = ConvolutionalBlock(
+        ### First block
+        self.conv_1 = ConvNextV2Block(
             in_channels=1,
             out_channels=16,
+            stride=1,
             kernel_size=3,
-            strides=1,
             padding="same",
+            point_wise_scaling=2,
         )
 
-        self.conv_2 = ConvolutionalBlock(
+        self.conv_2 = ConvNextV2Block(
             in_channels=16,
             out_channels=16,
+            stride=1,
             kernel_size=3,
-            strides=2,
-            padding=1,
+            padding="same",
+            point_wise_scaling=2,
         )
-        self.drop_3 = nn.Dropout(0.2)
 
-        # ConvolutionalBlock(
-        #     in_channels=16,
-        #     out_channels=32,
-        #     kernel_size=3,
-        #     strides=1,
-        #     padding="same"
-        # )
+        self.max_1 = nn.MaxPool3d(
+            kernel_size=2
+        )
 
-        self.conv_3 = ConvolutionalBlock(
+        self.conv_3 = ConvNextV2Block(
             in_channels=16,
             out_channels=32,
+            stride=1,
             kernel_size=3,
-            strides=1,
-            padding="same",
+            padding=1,
+            point_wise_scaling=2,
         )
-        self.drop_4 = nn.Dropout(0.2)
 
-        # ConvolutionalBlock(
-        #     in_channels=32,
-        #     out_channels=32,
-        #     kernel_size=3,
-        #     strides=2,
-        #     padding=1
-        # )
-
-        self.conv_4 = ConvolutionalBlock(
+        self.conv_4 = ConvNextV2Block(
             in_channels=32,
             out_channels=32,
+            stride=1,
             kernel_size=3,
-            strides=2,
-            padding=1,
+            padding="same",
+            point_wise_scaling=2,
         )
 
-        self.conv_5 = ConvolutionalBlock(
+        self.max_2 = nn.MaxPool3d(
+            kernel_size=2
+        )
+
+        self.conv_5 = ConvNextV2Block(
             in_channels=32,
             out_channels=64,
+            stride=1,
             kernel_size=3,
-            strides=1,
             padding="same",
+            point_wise_scaling=2,
         )
 
-        self.conv_6 = ConvolutionalBlock(
+        self.conv_6 = ConvNextV2Block(
             in_channels=64,
             out_channels=64,
+            stride=1,
             kernel_size=3,
-            strides=2,
             padding=1,
+            point_wise_scaling=2,
         )
-        self.drop_6 = nn.Dropout(0.2)
 
-        # ConvolutionalBlock(
-        #     in_channels=64,
-        #     out_channels=64,
-        #     kernel_size=3,
-        #     strides=2,
-        #     padding=1
-        # )
+        self.max_3 = nn.MaxPool3d(
+            kernel_size=2
+        )
 
-        self.skip_connections = []
+        self.conv_7 = ConvNextV2Block(
+            in_channels=64,
+            out_channels=128,
+            stride=1,
+            kernel_size=3,
+            padding="same",
+            point_wise_scaling=2,
+        )
+
+        self.conv_8 = ConvNextV2Block(
+            in_channels=128,
+            out_channels=128,
+            stride=1,
+            kernel_size=3,
+            padding="same",
+            point_wise_scaling=2,
+        )
+
+        self.max_4 = nn.MaxPool3d(
+            kernel_size=2
+        )
+
+        self.conv_9 = ConvNextV2Block(
+            in_channels=128,
+            out_channels=256,
+            stride=1,
+            kernel_size=3,
+            padding=1,
+            point_wise_scaling=2,
+        )
+
+        self.conv_10 = ConvNextV2Block(
+            in_channels=256,
+            out_channels=256,
+            stride=1,
+            kernel_size=3,
+            padding=1,
+            point_wise_scaling=2,
+        )
+
+        self.skip_connections = ()
         # self.print_layer = PrintLayer()
 
         # Initializing
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
-        if isinstance(m, (nn.Conv3d, nn.Linear)):
+        if isinstance(m, (nn.Conv2d, nn.Linear)):
             nn.init.xavier_uniform_(m.weight)
             nn.init.constant_(m.bias, 0)
 
@@ -201,135 +232,421 @@ class EncoderPath(nn.Module):
 
     def forward(self, x):
         # Input: N, C, D, H, W | output: N, out_channels.conv1, D, H, W
+        # print("Encoder ", x.shape)
 
-        # Input: N, 1, 64, 64, 64 | output: N, 16, 64, 64, 64
-        skip_0 = self.conv_1(x)
-        # Input: N, 16, 64, 64, 64 | output: N, 16, 32, 32, 32
-        x = self.conv_2(skip_0)
-        # self.print_layer(x)
+        ########## FIRST BLOCK ##########
+        # Input: N, 1, 128, 128, 128 | output: N, 16, 128, 128, 128
+        x = self.conv_1(x)
+        # self.print_layer(x, m="Conv 1")
+        
+        # Input: N, 16, 128, 128, 128 | output: N, 16, 128, 128, 128
+        skip_1 = self.conv_2(x)
+        # self.print_layer(skip_1, m="Conv 2 - Skip")
 
-        # Input: N, 16, 32, 32, 32 | output: N, 32, 32, 32, 32
-        skip_1 = self.conv_3(x)
+        # Input: N, 16, 128, 128, 128 | output: N, 16, 64, 64, 64
+        x = self.max_1(skip_1)
+
+        ########## SECOND BLOCK ##########
+        # Input: N, 16, 64, 64, 64 | output: N, 32, 64, 64, 64
+        x = self.conv_3(x)
+        # self.print_layer(x, m="Conv 3 with skip")
+        
+        # # Input: N, 32, 64, 64, 64 | output: N, 32, 64, 64, 64
+        skip_2 = self.conv_4(x)
+        # self.print_layer(skip_2, m="Conv 4")
+
         # Input: N, 32, 32, 32, 32 | output: N, 32, 16, 16, 16
-        x = self.conv_4(skip_1)
+        x = self.max_2(skip_2)
+
+        ########## THIRD BLOCK ##########
+        # Input: N, 32, 32, 32, 32 | output: N, 64, 32, 32, 32
+        x = self.conv_5(x)
+        # self.print_layer(x, m="Conv 5")
+        # Input: N, 64, 32, 32, 32 | output: N, 64, 32, 32, 32
+        skip_3 = self.conv_6(x)
+        # self.print_layer(skip_3, m="Conv 6")
+
+        # Input: N, 64, 32, 32, 32 | output: N, 64, 16, 16, 16
+        x = self.max_3(skip_3)
+
+        ########## FOURTH BLOCK ##########
+        # Input: N, 64, 16, 16, 16 | output: N, 128, 16, 16, 16
+        x = self.conv_7(x)
+        # self.print_layer(x, m="Conv 7")
+        # Input: N, 128, 16, 16, 16 | output: N, 128, 16, 16, 16
+        skip_4 = self.conv_8(x)
+        # self.print_layer(skip_4, m="Conv 8")
+
+        # Input: N, 128, 16, 16, 16 | output: N, 128, 8, 8, 8
+        x = self.max_4(skip_4)
+
+        ########## FIFTH BLOCK ##########
+        # Input: N, 128, 8, 8, 8 | output: N, 256, 8, 8, 8
+        x = self.conv_9(x)
         # self.print_layer(x)
 
-        # Input: N, 32, 16, 16, 16 | output: N, 64, 16, 16, 16
-        skip_2 = self.conv_5(x)
-        # Input: N, 64, 16, 16, 16 | output: N, 64, 8, 8, 8
-        x = self.conv_6(skip_2)
+        x = self.conv_10(x)
         # self.print_layer(x)
 
-        self.skip_connections = (skip_0, skip_1, skip_2)
-
+        self.skip_connections = (skip_1, skip_2, skip_3, skip_4)
         return x
 
+
+# class EncoderPath(nn.Module):
+#     """
+#     Encoder path of the Unet
+#     """
+
+#     def __init__(self, *args, **kwargs) -> None:
+#         super(EncoderPath, self).__init__(*args, **kwargs)
+#         self.conv_1 = ConvolutionalBlock(
+#             in_channels=1,
+#             out_channels=16,
+#             kernel_size=3,
+#             strides=1,
+#             padding="same",
+#         )
+
+#         self.conv_2 = ConvolutionalBlock(
+#             in_channels=16,
+#             out_channels=16,
+#             kernel_size=3,
+#             strides=2,
+#             padding=1,
+#         )
+#         self.drop_3 = nn.Dropout(0.2)
+
+#         # ConvolutionalBlock(
+#         #     in_channels=16,
+#         #     out_channels=32,
+#         #     kernel_size=3,
+#         #     strides=1,
+#         #     padding="same"
+#         # )
+
+#         self.conv_3 = ConvolutionalBlock(
+#             in_channels=16,
+#             out_channels=32,
+#             kernel_size=3,
+#             strides=1,
+#             padding="same",
+#         )
+#         self.drop_4 = nn.Dropout(0.2)
+
+#         # ConvolutionalBlock(
+#         #     in_channels=32,
+#         #     out_channels=32,
+#         #     kernel_size=3,
+#         #     strides=2,
+#         #     padding=1
+#         # )
+
+#         self.conv_4 = ConvolutionalBlock(
+#             in_channels=32,
+#             out_channels=32,
+#             kernel_size=3,
+#             strides=2,
+#             padding=1,
+#         )
+
+#         self.conv_5 = ConvolutionalBlock(
+#             in_channels=32,
+#             out_channels=64,
+#             kernel_size=3,
+#             strides=1,
+#             padding="same",
+#         )
+
+#         self.conv_6 = ConvolutionalBlock(
+#             in_channels=64,
+#             out_channels=64,
+#             kernel_size=3,
+#             strides=2,
+#             padding=1,
+#         )
+#         self.drop_6 = nn.Dropout(0.2)
+
+#         # ConvolutionalBlock(
+#         #     in_channels=64,
+#         #     out_channels=64,
+#         #     kernel_size=3,
+#         #     strides=2,
+#         #     padding=1
+#         # )
+
+#         self.skip_connections = []
+#         # self.print_layer = PrintLayer()
+
+#         # Initializing
+#         self.apply(self._init_weights)
+
+#     def _init_weights(self, m):
+#         if isinstance(m, (nn.Conv3d, nn.Linear)):
+#             nn.init.xavier_uniform_(m.weight)
+#             nn.init.constant_(m.bias, 0)
+
+#     def get_skip_connections(self):
+#         return self.skip_connections
+
+#     def forward(self, x):
+#         # Input: N, C, D, H, W | output: N, out_channels.conv1, D, H, W
+
+#         # Input: N, 1, 64, 64, 64 | output: N, 16, 64, 64, 64
+#         skip_0 = self.conv_1(x)
+#         # Input: N, 16, 64, 64, 64 | output: N, 16, 32, 32, 32
+#         x = self.conv_2(skip_0)
+#         # self.print_layer(x)
+
+#         # Input: N, 16, 32, 32, 32 | output: N, 32, 32, 32, 32
+#         skip_1 = self.conv_3(x)
+#         # Input: N, 32, 32, 32, 32 | output: N, 32, 16, 16, 16
+#         x = self.conv_4(skip_1)
+#         # self.print_layer(x)
+
+#         # Input: N, 32, 16, 16, 16 | output: N, 64, 16, 16, 16
+#         skip_2 = self.conv_5(x)
+#         # Input: N, 64, 16, 16, 16 | output: N, 64, 8, 8, 8
+#         x = self.conv_6(skip_2)
+#         # self.print_layer(x)
+
+#         self.skip_connections = (skip_0, skip_1, skip_2)
+
+#         return x
 
 class DecoderBlock(nn.Module):
     def __init__(self) -> None:
         super(DecoderBlock, self).__init__()
 
-        # Input: N, 64, 8, 8, 8 | output: N, 64, 16, 16, 16
-        self.up_conv_1 = DecoderUpsampleBlock(
+        self.conv_trans_1 = nn.ConvTranspose3d(
+            in_channels=256,
+            out_channels=256,
+            kernel_size=2,
+            stride=2,
+            padding=0,
+        )
+
+        self.conv_1 = ConvNextV2Block(
+            in_channels=384,
+            out_channels=128,
+            stride=1,
+            kernel_size=3,
+            padding=1,
+            point_wise_scaling=2,
+        )
+
+
+        self.conv_trans_2 = nn.ConvTranspose3d(
+            in_channels=128,
+            out_channels=128,
+            kernel_size=2,
+            stride=2,
+            padding=0,
+        )
+
+        self.conv_2 = ConvNextV2Block(
+            in_channels=192,
+            out_channels=64,
+            stride=1,
+            kernel_size=3,
+            padding=1,
+            point_wise_scaling=2,
+        )
+
+        self.conv_trans_3 = nn.ConvTranspose3d(
             in_channels=64,
             out_channels=64,
-            norm_rate=1e-4,
-            kernel_size=3,
-            strides=1,
+            kernel_size=2,
+            stride=2,
+            padding=0,
         )
 
-        # Input: N, 64, 16, 16, 16 | output: N, 32, 16, 16, 16
-        self.conv_1 = ConvolutionalBlock(
-            in_channels=64,
+        self.conv_3 = ConvNextV2Block(
+            in_channels=96,
             out_channels=32,
+            stride=1,
             kernel_size=3,
-            strides=1,
-            padding="same",
+            padding=1,
+            point_wise_scaling=2,
         )
 
-        # Input: N, 32, 16, 16, 16 | output: N, 32, 32, 32, 32
-        self.up_conv_2 = DecoderUpsampleBlock(
+        self.conv_trans_4 = nn.ConvTranspose3d(
             in_channels=32,
             out_channels=32,
-            norm_rate=1e-4,
-            kernel_size=3,
-            strides=1,
+            kernel_size=2,
+            stride=2,
+            padding=0,
         )
 
-        # Input: N, 32, 32, 32, 32 | output: N, 16, 32, 32, 32
-        self.conv_2 = ConvolutionalBlock(
-            in_channels=32,
+        self.conv_4 = ConvNextV2Block(
+            in_channels=48,
             out_channels=16,
+            stride=1,
             kernel_size=3,
-            strides=1,
-            padding="same",
+            padding=1,
+            point_wise_scaling=2,
         )
-
-        # Input: N, 16, 32, 32, 32 | output: N, 16, 64, 64, 64
-        self.up_conv_3 = DecoderUpsampleBlock(
-            in_channels=16,
-            out_channels=16,
-            norm_rate=1e-4,
-            kernel_size=3,
-            strides=1,
-        )
-
-        # Input: N, 16, 64, 64, 64 | output: N, 8, 64, 64, 64
-        self.conv_3 = ConvolutionalBlock(
-            in_channels=16,
-            out_channels=8,
-            kernel_size=3,
-            strides=1,
-            padding="same",
-        )
-
+        
         self.segmentation_head = SegmentationHead(
-            in_channels=8,
+            in_channels=16,
             out_channels=1,  # N classes
             kernel_size=1,
             strides=1,
         )
         # self.print_layer = PrintLayer()
 
-        # Initializing
-        self.apply(self._init_weights)
-
-    def _init_weights(self, m):
-        if isinstance(m, (nn.Conv3d, nn.Linear)):
-            nn.init.xavier_uniform_(m.weight)
-            nn.init.constant_(m.bias, 0)
-
     def forward(self, x, skips):
-        # Input: N, 64, 8, 8, 8 | output: N, 64, 16, 16, 16
-        x = self.up_conv_1(x)
-        # Input: N, 64, 16, 16, 16 | output: N, 64, 16, 16, 16
-        # print(x.shape, skips[-1].shape)
-        x = torch.add(x, skips[-1])
-        # Input: N, 64, 16, 16, 16 | output: N, 32, 16, 16, 16
+        # print("Decoder input ", x.shape, "Skip cons: ", len(skips))
+
+        ######## FIRST BLOCK ########
+        x = self.conv_trans_1(x)
+        # self.print_layer(x, m="conv trans 1")
+
+        x = torch.cat([ x, skips[-1] ], dim=1)
+        # self.print_layer(x, m="Skip - upconv cat 1")
+        
         x = self.conv_1(x)
-        # self.print_layer(x)
+        # self.print_layer(x, m="conv 1")
 
-        # Input: N, 32, 16, 16, 16 | output: N, 32, 32, 32, 32
-        x = self.up_conv_2(x)
-        # Input: N, 32, 32, 32, 32 | output: N, 32, 32, 32, 32
-        x = torch.add(x, skips[-2])
-        # Input: N, 32, 32, 32, 32 | output: N, 16, 32, 32, 32
+        ######## SECOND BLOCK ########
+        x = self.conv_trans_2(x)
+        # self.print_layer(x, m="conv trans 2")
+
+        x = torch.cat([ x, skips[-2] ], dim=1)
+        # self.print_layer(x, m="Skip - upconv cat 2")
+        
         x = self.conv_2(x)
-        # self.print_layer(x)
+        # self.print_layer(x, m="conv 2")
 
-        # Input: N, 16, 32, 32, 32 | output: N, 16, 64, 64, 64
-        x = self.up_conv_3(x)
-        # Input: N, 16, 64, 64, 64 | output: N, 16, 64, 64, 64
-        x = torch.add(x, skips[-3])
-        # Input: N, 16, 64, 64, 64 | output: N, 8, 64, 64, 64
+        ######## THIRD BLOCK ########
+        x = self.conv_trans_3(x)
+        # self.print_layer(x, m="conv trans 3")
+
+        x = torch.cat([ x, skips[-3] ], dim=1)
+        # self.print_layer(x, m="Skip - upconv cat 3")
+        
         x = self.conv_3(x)
-        # self.print_layer(x)
+        # self.print_layer(x, m="conv 3")
 
+        ######## FOURTH BLOCK ########
+        x = self.conv_trans_4(x)
+        # self.print_layer(x, m="conv trans 4")
+
+        x = torch.cat([ x, skips[-4] ], dim=1)
+        # self.print_layer(x, m="Skip - upconv cat 4")
+        
+        x = self.conv_4(x)
+        # self.print_layer(x, m="conv 4")
+        
         # End block
         x = self.segmentation_head(x)
-        # self.print_layer(x)
-
+        # self.print_layer(x, m="Seg head")
         return x
+
+# class DecoderBlock(nn.Module):
+#     def __init__(self) -> None:
+#         super(DecoderBlock, self).__init__()
+
+#         # Input: N, 64, 8, 8, 8 | output: N, 64, 16, 16, 16
+#         self.up_conv_1 = DecoderUpsampleBlock(
+#             in_channels=64,
+#             out_channels=64,
+#             norm_rate=1e-4,
+#             kernel_size=3,
+#             strides=1,
+#         )
+
+#         # Input: N, 64, 16, 16, 16 | output: N, 32, 16, 16, 16
+#         self.conv_1 = ConvolutionalBlock(
+#             in_channels=64,
+#             out_channels=32,
+#             kernel_size=3,
+#             strides=1,
+#             padding="same",
+#         )
+
+#         # Input: N, 32, 16, 16, 16 | output: N, 32, 32, 32, 32
+#         self.up_conv_2 = DecoderUpsampleBlock(
+#             in_channels=32,
+#             out_channels=32,
+#             norm_rate=1e-4,
+#             kernel_size=3,
+#             strides=1,
+#         )
+
+#         # Input: N, 32, 32, 32, 32 | output: N, 16, 32, 32, 32
+#         self.conv_2 = ConvolutionalBlock(
+#             in_channels=32,
+#             out_channels=16,
+#             kernel_size=3,
+#             strides=1,
+#             padding="same",
+#         )
+
+#         # Input: N, 16, 32, 32, 32 | output: N, 16, 64, 64, 64
+#         self.up_conv_3 = DecoderUpsampleBlock(
+#             in_channels=16,
+#             out_channels=16,
+#             norm_rate=1e-4,
+#             kernel_size=3,
+#             strides=1,
+#         )
+
+#         # Input: N, 16, 64, 64, 64 | output: N, 8, 64, 64, 64
+#         self.conv_3 = ConvolutionalBlock(
+#             in_channels=16,
+#             out_channels=8,
+#             kernel_size=3,
+#             strides=1,
+#             padding="same",
+#         )
+
+#         self.segmentation_head = SegmentationHead(
+#             in_channels=8,
+#             out_channels=1,  # N classes
+#             kernel_size=1,
+#             strides=1,
+#         )
+#         # self.print_layer = PrintLayer()
+
+#         # Initializing
+#         self.apply(self._init_weights)
+
+#     def _init_weights(self, m):
+#         if isinstance(m, (nn.Conv3d, nn.Linear)):
+#             nn.init.xavier_uniform_(m.weight)
+#             nn.init.constant_(m.bias, 0)
+
+#     def forward(self, x, skips):
+#         # Input: N, 64, 8, 8, 8 | output: N, 64, 16, 16, 16
+#         x = self.up_conv_1(x)
+#         # Input: N, 64, 16, 16, 16 | output: N, 64, 16, 16, 16
+#         # print(x.shape, skips[-1].shape)
+#         x = torch.add(x, skips[-1])
+#         # Input: N, 64, 16, 16, 16 | output: N, 32, 16, 16, 16
+#         x = self.conv_1(x)
+#         # self.print_layer(x)
+
+#         # Input: N, 32, 16, 16, 16 | output: N, 32, 32, 32, 32
+#         x = self.up_conv_2(x)
+#         # Input: N, 32, 32, 32, 32 | output: N, 32, 32, 32, 32
+#         x = torch.add(x, skips[-2])
+#         # Input: N, 32, 32, 32, 32 | output: N, 16, 32, 32, 32
+#         x = self.conv_2(x)
+#         # self.print_layer(x)
+
+#         # Input: N, 16, 32, 32, 32 | output: N, 16, 64, 64, 64
+#         x = self.up_conv_3(x)
+#         # Input: N, 16, 64, 64, 64 | output: N, 16, 64, 64, 64
+#         x = torch.add(x, skips[-3])
+#         # Input: N, 16, 64, 64, 64 | output: N, 8, 64, 64, 64
+#         x = self.conv_3(x)
+#         # self.print_layer(x)
+
+#         # End block
+#         x = self.segmentation_head(x)
+#         # self.print_layer(x)
+
+#         return x
 
 
 def dice_coefficient(y_true, y_pred):
@@ -389,6 +706,8 @@ class Neuratt(L.LightningModule):
         # loss = nn.functional.binary_cross_entropy(
         #     input=decoder_result, target=y
         # )
+        # print("Decoder: ", y.shape, decoder_result.shape)
+        
         loss = self.loss_fn(decoder_result, y)
 
         prob_mask = decoder_result.sigmoid()
@@ -437,6 +756,7 @@ class Neuratt(L.LightningModule):
         # loss = nn.functional.binary_cross_entropy(
         #     input=decoder_result, target=y
         # )
+        # print("Decoder: ", y.shape, decoder_result.shape)
         loss = self.loss_fn(decoder_result, y)
         self.log("val_loss", loss.item())
 
@@ -488,7 +808,7 @@ class Neuratt(L.LightningModule):
 
     def predict(self, batch, threshold=0.5, dataloader_idx=0):
 
-        decoder_result = self(x)
+        decoder_result = self(batch)
 
         prob_mask = decoder_result.sigmoid()
         pred_mask = (prob_mask > threshold).float()
