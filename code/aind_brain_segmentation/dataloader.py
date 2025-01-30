@@ -48,8 +48,8 @@ class ImageMaskDataset(Dataset):
             transformed = self.transform(subject)
             image = transformed.image.data
             mask = transformed.mask.data
-
-        gc.collect()
+        
+        # gc.collect()
 
         return image, mask#, orig_image, orig_mask
 
