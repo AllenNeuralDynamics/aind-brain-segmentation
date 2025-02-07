@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 # from torchviz import make_dot
 from torchmetrics import Accuracy, F1Score, JaccardIndex
 
-from layers.blocks import (ConvNextV2, ConvNextV2Block, ConvolutionalBlock,
+from .layers.blocks import (ConvNextV2, ConvNextV2Block, ConvolutionalBlock,
                             DecoderUpsampleBlock, EncoderDecoderConnections,
                             PrintLayer, SegmentationHead)
 
@@ -119,20 +119,11 @@ class EncoderPath(nn.Module):
             point_wise_scaling=2,
         )
 
-        # self.conv_2 = ConvNextV2Block(
-        #     in_channels=16,
-        #     out_channels=16,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding="same",
-        #     point_wise_scaling=2,
-        # )
-
         self.max_1 = nn.MaxPool3d(
             kernel_size=2
         )
 
-        self.conv_3 = ConvNextV2Block(
+        self.conv_2 = ConvNextV2Block(
             in_channels=16,
             out_channels=32,
             stride=1,
@@ -140,21 +131,12 @@ class EncoderPath(nn.Module):
             padding=1,
             point_wise_scaling=2,
         )
-
-        # self.conv_4 = ConvNextV2Block(
-        #     in_channels=32,
-        #     out_channels=32,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding="same",
-        #     point_wise_scaling=2,
-        # )
-
+        
         self.max_2 = nn.MaxPool3d(
             kernel_size=2
         )
 
-        self.conv_5 = ConvNextV2Block(
+        self.conv_3 = ConvNextV2Block(
             in_channels=32,
             out_channels=64,
             stride=1,
@@ -163,20 +145,11 @@ class EncoderPath(nn.Module):
             point_wise_scaling=2,
         )
 
-        # self.conv_6 = ConvNextV2Block(
-        #     in_channels=64,
-        #     out_channels=64,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding=1,
-        #     point_wise_scaling=2,
-        # )
-
         self.max_3 = nn.MaxPool3d(
             kernel_size=2
         )
 
-        self.conv_7 = ConvNextV2Block(
+        self.conv_4 = ConvNextV2Block(
             in_channels=64,
             out_channels=128,
             stride=1,
@@ -184,37 +157,6 @@ class EncoderPath(nn.Module):
             padding="same",
             point_wise_scaling=2,
         )
-
-        # self.conv_8 = ConvNextV2Block(
-        #     in_channels=128,
-        #     out_channels=128,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding="same",
-        #     point_wise_scaling=2,
-        # )
-
-        self.max_4 = nn.MaxPool3d(
-            kernel_size=2
-        )
-
-        self.conv_9 = ConvNextV2Block(
-            in_channels=128,
-            out_channels=256,
-            stride=1,
-            kernel_size=3,
-            padding=1,
-            point_wise_scaling=2,
-        )
-
-        # self.conv_10 = ConvNextV2Block(
-        #     in_channels=256,
-        #     out_channels=256,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding=1,
-        #     point_wise_scaling=2,
-        # )
 
         self.skip_connections = ()
         # self.print_layer = PrintLayer()
@@ -248,8 +190,8 @@ class EncoderPath(nn.Module):
 
         ########## SECOND BLOCK ##########
         # Input: N, 16, 64, 64, 64 | output: N, 32, 64, 64, 64
-        skip_2 = self.conv_3(x)
-        # self.print_layer(x, m="Conv 3 with skip")
+        skip_2 = self.conv_2(x)
+        # self.print_layer(x, m="Conv 2")
         
         # # Input: N, 32, 64, 64, 64 | output: N, 32, 64, 64, 64
         # skip_2 = self.conv_4(x)
@@ -260,8 +202,8 @@ class EncoderPath(nn.Module):
 
         ########## THIRD BLOCK ##########
         # Input: N, 32, 32, 32, 32 | output: N, 64, 32, 32, 32
-        skip_3 = self.conv_5(x)
-        # self.print_layer(x, m="Conv 5")
+        skip_3 = self.conv_3(x)
+        # self.print_layer(x, m="Conv 3")
         # Input: N, 64, 32, 32, 32 | output: N, 64, 32, 32, 32
         # skip_3 = self.conv_6(x)
         # self.print_layer(skip_3, m="Conv 6")
@@ -271,24 +213,24 @@ class EncoderPath(nn.Module):
 
         ########## FOURTH BLOCK ##########
         # Input: N, 64, 16, 16, 16 | output: N, 128, 16, 16, 16
-        skip_4 = self.conv_7(x)
-        # self.print_layer(x, m="Conv 7")
+        x = self.conv_4(x)
+        # self.print_layer(x, m="Conv 4")
         # Input: N, 128, 16, 16, 16 | output: N, 128, 16, 16, 16
         # skip_4 = self.conv_8(x)
         # self.print_layer(skip_4, m="Conv 8")
 
         # Input: N, 128, 16, 16, 16 | output: N, 128, 8, 8, 8
-        x = self.max_4(skip_4)
+        # x = self.max_4(skip_4)
 
         ########## FIFTH BLOCK ##########
         # Input: N, 128, 8, 8, 8 | output: N, 256, 8, 8, 8
-        x = self.conv_9(x)
-        # self.print_layer(x)
+        # x = self.conv_9(x)
+        # self.print_layer(x, m="conv 9")
 
         # x = self.conv_10(x)
         # self.print_layer(x)
 
-        self.skip_connections = (skip_1, skip_2, skip_3, skip_4)
+        self.skip_connections = (skip_1, skip_2, skip_3)
         return x
 
 
@@ -417,143 +359,51 @@ class DecoderBlock(nn.Module):
     def __init__(self) -> None:
         super(DecoderBlock, self).__init__()
 
-        # DecoderUpsampleBlock(
-        #     in_channels=256,
-        #     out_channels=256,
-        #     norm_rate=1e-4,
-        #     kernel_size=3,
-        #     strides=1,
-        # )
-        self.conv_trans_1 = nn.ConvTranspose3d(
-            in_channels=256,
-            out_channels=256,
-            kernel_size=2,
-            stride=2,
-            padding=0,
-        )
-
-        self.conv_1 = ConvolutionalBlock(
-            in_channels=384,
-            out_channels=128,
-            kernel_size=3,
-            strides=1,
-            padding=1,
-        )
-        
-        # ConvNextV2Block(
-        #     in_channels=384,
-        #     out_channels=128,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding=1,
-        #     point_wise_scaling=2,
-        # )
-
-        # self.conv_trans_2 = DecoderUpsampleBlock(
-        #     in_channels=128,
-        #     out_channels=128,
-        #     norm_rate=1e-4,
-        #     kernel_size=3,
-        #     strides=1,
-        # )
-        self.conv_trans_2 = nn.ConvTranspose3d(
+        self.conv_trans_1 = DecoderUpsampleBlock(
             in_channels=128,
-            out_channels=128,
-            kernel_size=2,
-            stride=2,
-            padding=0,
-        )
-
-        self.conv_2 = ConvolutionalBlock(
-            in_channels=192,
             out_channels=64,
+            norm_rate=1e-4,
             kernel_size=3,
-            strides=1,
-            padding=1,
+            strides=1
         )
-        
-        # ConvNextV2Block(
-        #     in_channels=192,
-        #     out_channels=64,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding=1,
-        #     point_wise_scaling=2,
-        # )
 
-        # self.conv_trans_3 = DecoderUpsampleBlock(
-        #     in_channels=64,
-        #     out_channels=64,
-        #     norm_rate=1e-4,
-        #     kernel_size=3,
-        #     strides=1,
-        # )
-        self.conv_trans_3 = nn.ConvTranspose3d(
+        self.conv_trans_2 = DecoderUpsampleBlock(
+            in_channels=128,
+            out_channels=32,
+            norm_rate=1e-4,
+            kernel_size=3,
+            strides=1
+        )
+
+        
+        self.conv_trans_3 = DecoderUpsampleBlock(
             in_channels=64,
-            out_channels=64,
-            kernel_size=2,
-            stride=2,
-            padding=0,
-        )
-
-        # self.conv_3 = ConvNextV2Block(
-        #     in_channels=96,
-        #     out_channels=32,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding=1,
-        #     point_wise_scaling=2,
-        # )
-
-        self.conv_3 = ConvolutionalBlock(
-            in_channels=96,
-            out_channels=32,
-            kernel_size=3,
-            strides=1,
-            padding=1,
-        )
-        
-        # self.conv_trans_4 = DecoderUpsampleBlock(
-        #     in_channels=32,
-        #     out_channels=32,
-        #     norm_rate=1e-4,
-        #     kernel_size=3,
-        #     strides=1,
-        # )
-        self.conv_trans_4 = nn.ConvTranspose3d(
-            in_channels=32,
-            out_channels=32,
-            kernel_size=2,
-            stride=2,
-            padding=0,
-        )
-
-        # self.conv_4 = ConvNextV2Block(
-        #     in_channels=48,
-        #     out_channels=16,
-        #     stride=1,
-        #     kernel_size=3,
-        #     padding=1,
-        #     point_wise_scaling=2,
-        # )
-        self.conv_4 = ConvolutionalBlock(
-            in_channels=48,
             out_channels=16,
+            norm_rate=1e-4,
             kernel_size=3,
-            strides=1,
-            padding=1,
+            strides=1
         )
+
+        
+        # self.conv_trans_4 = nn.ConvTranspose3d(
+        #     in_channels=32,
+        #     out_channels=8,
+        #     kernel_size=2,
+        #     stride=2,
+        #     padding=0,
+        # )
         
         self.segmentation_head = SegmentationHead(
-            in_channels=16,
+            in_channels=32,
             out_channels=1,  # N classes
             kernel_size=1,
             strides=1,
         )
-        self.print_layer = PrintLayer()
+        # self.print_layer = PrintLayer()
 
     def forward(self, x, skips):
         # print("Decoder input ", x.shape, "Skip cons: ", len(skips))
+        # print([p.shape for p in skips])
 
         ######## FIRST BLOCK ########
         x = self.conv_trans_1(x)
@@ -562,19 +412,10 @@ class DecoderBlock(nn.Module):
         x = torch.cat([ x, skips[-1] ], dim=1)
         # self.print_layer(x, m="Skip - upconv cat 1")
         
-        x = self.conv_1(x)
-        # self.print_layer(x, m="conv 1")
-
         ######## SECOND BLOCK ########
         x = self.conv_trans_2(x)
-        # self.print_layer(x, m="conv trans 2")
-        
-        # print(x.shape, skips[-2].shape)
         x = torch.cat([ x, skips[-2] ], dim=1)
-        # self.print_layer(x, m="Skip - upconv cat 2")
-        
-        x = self.conv_2(x)
-        # self.print_layer(x, m="conv 2")
+        # self.print_layer(x, m="conv trans 2")
 
         ######## THIRD BLOCK ########
         x = self.conv_trans_3(x)
@@ -582,20 +423,7 @@ class DecoderBlock(nn.Module):
 
         x = torch.cat([ x, skips[-3] ], dim=1)
         # self.print_layer(x, m="Skip - upconv cat 3")
-        
-        x = self.conv_3(x)
-        # self.print_layer(x, m="conv 3")
-
-        ######## FOURTH BLOCK ########
-        x = self.conv_trans_4(x)
-        self.print_layer(x, m="conv trans 4")
-        print(skips[-4].shape)
-        x = torch.cat([ x, skips[-4] ], dim=1)
-        # self.print_layer(x, m="Skip - upconv cat 4")
-        
-        x = self.conv_4(x)
-        # self.print_layer(x, m="conv 4")
-        
+    
         # End block
         x = self.segmentation_head(x)
         # self.print_layer(x, m="Seg head")
@@ -902,7 +730,7 @@ def check_model():
     # logger = create_logger("test_network.log")
 
     print(torch.__version__)
-    image_size = 128
+    image_size = 64
     channels = 1
     x = torch.Tensor(1, channels, image_size, image_size, image_size)
 
@@ -911,10 +739,16 @@ def check_model():
 
     out = model(x)
     trainable_params, total_params = count_params(model)
+    
     print(model)
-    print(
-        "Trainable params: ", trainable_params, " total params: ", total_params, " output image: ", out.shape
-    )
+
+    trainable_params_encoder, total_params_encoder = count_params(model.encoder_path)
+    trainable_params_decoder, total_params_decoder = count_params(model.decoder_path)
+    
+    print("Trainable params: ", trainable_params, " total params: ", total_params, " output image: ", out.shape)
+    print("Trainable encoder params: ", trainable_params_encoder, " total params: ", total_params_encoder, " output image: ", out.shape)
+    print("Trainable decoder params: ", trainable_params_decoder, " total params: ", total_params_decoder, " output image: ", out.shape)
+    
     # make_dot(out).render("neuratt", format="png")
 
 if __name__ == "__main__":

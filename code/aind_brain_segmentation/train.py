@@ -23,7 +23,7 @@ from model.network import Neuratt
 #     ScaleIntensityRange,
 #     NormalizeIntensity
 # )
-from sklearn.model_selection import KFold
+# from sklearn.model_selection import KFold
 import torch
 from pathlib import Path
 from torch.utils.data import Subset
@@ -347,7 +347,7 @@ def train(
         callbacks=callbacks,
         logger=logger,
         max_epochs=100,
-        max_time="00:08:00:00",
+        max_time="00:32:00:00",
         devices=1,
         accelerator="gpu",
         # deterministic=True,
@@ -369,28 +369,28 @@ def train(
 
 
 if __name__ == "__main__":
-    logger = CSVLogger("/results/whole_brain_seg", name="model-01")
+    # logger = CSVLogger("/results/whole_brain_seg", name="model-01")
     # previous_run_id = "your_run_id_here"
     
-    # project = "whole_brain_seg"
-    # name = "model-convnextv2"
+    project = "whole_brain_seg"
+    name = "model-convnextv2"
 
-    # run = wandb.init(
-    #     project=project,
-    #     name=name,
-    # )
+    run = wandb.init(
+        project=project,
+        name=name,
+    )
 
-    # logger = WandbLogger(
-    #     project=project,  # Replace with your W&B project name
-    #     name=name,  # Replace with your specific experiment name
-    #     save_dir=f"/results/{project}",  # Local directory to save logs
-    #     # id=previous_run_id,  # Use the previous run ID
-    #     # resume="allow",
-    # )
+    logger = WandbLogger(
+        project=project,  # Replace with your W&B project name
+        name=name,  # Replace with your specific experiment name
+        save_dir=f"/results/{project}",  # Local directory to save logs
+        # id=previous_run_id,  # Use the previous run ID
+        # resume="allow",
+    )
     
     train(
-        train_path="/scratch/dataset_patch_128_steps_64_clip_int_nocroptomask/train",
-        validation_path="/scratch/dataset_patch_128_steps_64_clip_int_nocroptomask/test",
+        train_path="/scratch/dataset_patch_64_steps_32_clip_int_nocroptomask/train",
+        validation_path="/scratch/dataset_patch_64_steps_32_clip_int_nocroptomask/test",
         logger=logger,
         batch_size=4,
         num_workers=4,
