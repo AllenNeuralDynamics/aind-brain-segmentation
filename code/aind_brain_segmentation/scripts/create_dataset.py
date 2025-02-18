@@ -395,28 +395,45 @@ def patch_image_in_slices(
 
     z_slices = data_block.shape[0]
     print(f"Processing {z_slices} slices for {smartspim_id}")
-    # for axis in range(3):
-    for i in range(z_slices):
-        max_id = mask_block[i].max()
-        max_data_block = data_block[i].max()
+    for axis in range(3):
+        print(f"Processing axis {axis}")
+        for i in range(z_slices):
 
-        if max_id and max_data_block:
-            # print(f"Processing slice: {i} - counter: {saved_slices}")
-            slice_data_resized = ski_resize(
-                data_block[i], (image_height, image_width), order=4, preserve_range=True
-            )
-            slice_mask_resized = ski_resize(
-                mask_block[i], (image_height, image_width), order=0, preserve_range=True
-            )
-    
-            output_image_slice = output_images.joinpath(f"{smartspim_id}_image_slice_{i}.tif")
-            output_mask_slice = output_masks.joinpath(f"{smartspim_id}_mask_slice_{i}.tif")
-    
-            io.imsave(output_image_slice, slice_data_resized.astype(np.float16))
-            io.imsave(output_mask_slice, slice_mask_resized.astype(np.uint8))
+            slice_mask = None
+            slice_data = None
+            
+            if axis == 0:
+                slice_mask = mask_block[i, :, :]
+                slice_data = data_block[i, :, :]
+                
+            elif axis == 1:
+                slice_mask = mask_block[:, i, :]
+                slice_data = data_block[:, i, :]
 
-        else:
-            print(f"Ignoring slice {i} - Max id: {max_id}")
+            elif axis == 2:
+                slice_mask = mask_block[:, :, i]
+                slice_data = data_block[:, :, i]
+                
+            max_id = slice_mask.max()
+            max_data_block = slice_data.max()
+        
+            if max_id and max_data_block:
+                # print(f"Processing slice: {i} - counter: {saved_slices}")
+                slice_data_resized = ski_resize(
+                    slice_data, (image_height, image_width), order=4, preserve_range=True
+                )
+                slice_mask_resized = ski_resize(
+                    slice_mask, (image_height, image_width), order=0, preserve_range=True
+                )
+        
+                output_image_slice = output_images.joinpath(f"{smartspim_id}_image_slice_{i}_ax_{axis}.tif")
+                output_mask_slice = output_masks.joinpath(f"{smartspim_id}_mask_slice_{i}_ax_{axis}.tif")
+        
+                io.imsave(output_image_slice, slice_data_resized.astype(np.float16))
+                io.imsave(output_mask_slice, slice_mask_resized.astype(np.uint8))
+        
+            else:
+                print(f"Ignoring slice {i} - Max id: {max_id}")
     
 if __name__ == "__main__":
     step_sizes = [64]#[64, 128]
