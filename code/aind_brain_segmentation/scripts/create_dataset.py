@@ -8,6 +8,8 @@ from patchify import patchify
 from natsort import natsorted
 from skimage import io
 import warnings
+from skimage import exposure, measure
+from skimage.transform import resize as ski_resize
 warnings.filterwarnings('ignore')
 
 def create_folder(dest_dir: str, verbose = False) -> None:
@@ -52,6 +54,7 @@ def main(
     apply_percentile_norm=False,
     clip_int=True,
     crop_to_mask=False,
+    volume_blocks=True
 ):
     dataset_path = Path(dataset_path)
     regex_id = r"_(\d{6})_"
@@ -102,7 +105,11 @@ def main(
                 if extracted_number in test_brain_ids:
                     masks_output_path = output_path.joinpath("test/masks")
                     images_output_path = output_path.joinpath("test/images")
-                
+
+                # if extracted_number != "729533":
+                #     print(f"Skipping {extracted_number}")
+                #     continue
+
                 image_path = list(dataset_path.glob(f"SmartSPIM_{extracted_number}*.tif*"))[0]
                 # image_block = tif.imread(image_path)
                 image_block = io.imread(image_path)
@@ -138,6 +145,22 @@ def main(
                 extracted_mask_block = np.squeeze(extracted_mask_block)
                 extracted_image_block = np.squeeze(extracted_image_block)
 
+                if extracted_number == "729533":
+                    print(f"Fixing orientation of {extracted_number}")
+                    
+                    extracted_mask_block = np.flip(
+                        np.transpose(
+                            extracted_mask_block,
+                            (-1, 1, 0)
+                        ), axis=1
+                    )
+                    extracted_image_block = np.flip(
+                        np.transpose(
+                            extracted_image_block,
+                            (-1, 1, 0)
+                        ), axis=1
+                    )
+
                 if extracted_image_block.ndim != 3:
                     raise ValueError(f"Image has the following shape: {extracted_image_block.shape}")
 
@@ -146,21 +169,40 @@ def main(
 
                 print(f"Writing blocks from {extracted_number} to {images_output_path.parent}")
                 print(f"Image shape: {extracted_image_block.shape} - Mask shape: {extracted_mask_block.shape}")
+                
+                if volume_blocks:
+                    patch_image_mask_data(
+                        data_block=extracted_image_block,
+                        mask_block=extracted_mask_block,
+                        output_images=images_output_path,
+                        output_masks=masks_output_path,
+                        smartspim_id=extracted_number,
+                        patch_size=patch_size,
+                        step_size=step_size,
+                        pmin=pmin,
+                        pmax=pmax,
+                        int_threshold=int_threshold,
+                        apply_percentile_norm=apply_percentile_norm,
+                        clip_int=clip_int,
+                    )
 
-                patch_image_mask_data(
-                    data_block=extracted_image_block,
-                    mask_block=extracted_mask_block,
-                    output_images=images_output_path,
-                    output_masks=masks_output_path,
-                    smartspim_id=extracted_number,
-                    patch_size=patch_size,
-                    step_size=step_size,
-                    pmin=pmin,
-                    pmax=pmax,
-                    int_threshold=int_threshold,
-                    apply_percentile_norm=apply_percentile_norm,
-                    clip_int=clip_int,
-                )
+                else:
+                    print("Generating slices!")
+                    patch_image_in_slices(
+                        data_block=extracted_image_block,
+                        mask_block=extracted_mask_block,
+                        output_images=images_output_path,
+                        output_masks=masks_output_path,
+                        smartspim_id=extracted_number,
+                        image_width=1024,
+                        image_height=1024,
+                        pmin=pmin,
+                        pmax=pmax,
+                        int_threshold=int_threshold,
+                        apply_percentile_norm=apply_percentile_norm,
+                        clip_int=clip_int,
+                    )
+                    
                 print("*"*20)
             
         else:
@@ -292,13 +334,96 @@ def patch_image_mask_data(
         io.imsave(output_mask_block, patched_mask_block.astype(np.uint8))
 
     print(f"Total blocks: {n_blocks} - Saved blocks: {saved_blocks} - Empty blocks: {n_blocks - saved_blocks}")
+
+def constrat_enhancement(normalized_image, k_factor=8, clip_limit=0.03):
+    """
+    Contrast enhancement with adaptative histogram equalization.
+
+    Note: The image must be in a range between -1 and 1 for floating images.
+    """
+
+    normalized_image_cp = normalized_image.copy()
+    kernel_size = (
+        normalized_image_cp.shape[0] // k_factor,
+        normalized_image_cp.shape[1] // k_factor,
+    )
+
+    equalized_image = exposure.equalize_adapthist(
+        normalized_image_cp, kernel_size=kernel_size, clip_limit=clip_limit
+    )
+
+    return equalized_image
+
+def patch_image_in_slices(
+    data_block,
+    mask_block,
+    output_images,
+    output_masks,
+    smartspim_id,
+    image_width=1024,
+    image_height=1024,
+    pmin=1,
+    pmax=99,
+    int_threshold=40,
+    apply_percentile_norm=False,
+    clip_int=True
+):
+    print("input shapes ", data_block.shape, mask_block.shape)
+    output_images = Path(output_images)
+    output_masks = Path(output_masks)
+
+    # patch_size = 64
+    # padding_needed = [(patch_size - (dim % patch_size)) % patch_size for dim in data_block.shape]
+    # padding = [(p // 2, p - (p // 2)) for p in padding_needed]
+    # padded_data_block = np.pad(data_block, padding, mode='constant', constant_values=0)
+    # padded_mask_block = np.pad(mask_block, padding, mode='constant', constant_values=0)
+
+    if clip_int:
+        print("Applying clipping")
+        indices = np.where(data_block <= int_threshold)
+        padded_data_block[indices] = 0
+        
+    if apply_percentile_norm:
+        print("Applying percentile norm")
+        # print("Min max ", padded_data_block.min(), padded_data_block.max())
+        
+        padded_data_block = percentile_normalization(
+            data=data_block,
+            percentiles=(pmin, pmax),
+            clip=False
+        )
+
+    z_slices = data_block.shape[0]
+    print(f"Processing {z_slices} slices for {smartspim_id}")
+    # for axis in range(3):
+    for i in range(z_slices):
+        max_id = mask_block[i].max()
+        max_data_block = data_block[i].max()
+
+        if max_id and max_data_block:
+            # print(f"Processing slice: {i} - counter: {saved_slices}")
+            slice_data_resized = ski_resize(
+                data_block[i], (image_height, image_width), order=4, preserve_range=True
+            )
+            slice_mask_resized = ski_resize(
+                mask_block[i], (image_height, image_width), order=0, preserve_range=True
+            )
+    
+            output_image_slice = output_images.joinpath(f"{smartspim_id}_image_slice_{i}.tif")
+            output_mask_slice = output_masks.joinpath(f"{smartspim_id}_mask_slice_{i}.tif")
+    
+            io.imsave(output_image_slice, slice_data_resized.astype(np.float16))
+            io.imsave(output_mask_slice, slice_mask_resized.astype(np.uint8))
+
+        else:
+            print(f"Ignoring slice {i} - Max id: {max_id}")
     
 if __name__ == "__main__":
     step_sizes = [64]#[64, 128]
-    patch_sizes = [128]#[64, 128]
+    patch_sizes = [64]#[64, 128]
     apply_percentile_norm = False
-    clip_int = True
-    crop_to_mask = False
+    clip_int = False
+    crop_to_mask = True
 
     for patch_size in patch_sizes:
         for step_size in step_sizes:
@@ -328,4 +453,5 @@ if __name__ == "__main__":
                 apply_percentile_norm=apply_percentile_norm,
                 clip_int=clip_int,
                 crop_to_mask=crop_to_mask,
+                volume_blocks=False,
             )

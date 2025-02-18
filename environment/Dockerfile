@@ -12,8 +12,6 @@ RUN conda install -y \
         jupyterlab==4.3.4 \
     && conda clean -ya
 
-# git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@py38-compatible
-
 RUN pip install --no-cache \
     tifffile \
     patchify \
@@ -26,5 +24,6 @@ RUN pip install --no-cache \
     segmentation_models_pytorch \
     wandb \
     torchvision==0.18.1 \
-    natsort
-
+    natsort \
+    git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
+    monai[all]

@@ -6,7 +6,7 @@ import torchio as tio
 
 import wandb
 from lightning.pytorch import seed_everything
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from torchvision import transforms
@@ -31,6 +31,8 @@ import numpy as np
 import random
 import torch
 import warnings
+import albumentations as A
+
 warnings.filterwarnings("ignore")
 
 def random_intensity_scaling(data, scale_range=(0.8, 1.2)):
@@ -115,6 +117,34 @@ def get_transforms():
         tio.RescaleIntensity(out_min_max = (0, 1)),
         # tio.RescaleIntensity(out_min_max=(0, 1)),  # Normalize intensity values
     ])
+
+def get_2d_transforms():
+    shift_range = 45
+    geometric_prob = 0.5
+    intensity_prob = 0.5
+
+    transform = A.Compose([
+        # Geometric Transformations (Applied to both images & masks)
+        A.OneOf([
+            A.HorizontalFlip(p=geometric_prob),  # Random horizontal flip
+            A.VerticalFlip(p=geometric_prob),
+            # A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=10, p=geometric_prob),
+            # A.ElasticTransform(alpha=1, sigma=50, alpha_affine=10, p=geometric_prob),
+        ], p=geometric_prob),
+
+        # Intensity Transformations (Applied only to images)
+        A.OneOf([
+            A.RandomGamma(gamma_limit=(70, 130), p=intensity_prob),
+            # A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.5, p=intensity_prob)
+        ], p=intensity_prob),
+
+        # Additional Effects
+        A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # Blur with variable kernel size
+        # A.Normalize(mean=(0.0,), std=(1.0,)),
+        # A.Normalize(mean=0, std=1, max_pixel_value=65535),  # Rescale intensity (0-1)
+    ])
+
+    return transform
 
 
 # def get_transforms_monai():
@@ -279,15 +309,17 @@ def train(
     seed_everything(42, workers=True)
     results_folder = os.path.abspath("/results")
 
-    monai_transforms = get_transforms() # get_transforms_monai()
+    transforms = None#get_2d_transforms() #get_transforms() # get_transforms_monai()
     # Train and validation datasets
 
     train_path = Path(train_path)
 
+    print(f"Reading images from {train_path}")
+
     dataset = ImageMaskDataset(
         train_path.joinpath('images'),
         train_path.joinpath('masks'),
-        transform=monai_transforms
+        transform=transforms
     )
     dataloader = DataLoader(
         dataset,
@@ -309,14 +341,6 @@ def train(
         num_workers=num_workers,
     )
     
-    # for images, masks in dataloader:
-    #     print("Batch of images shape:", images.shape)
-    #     print("Batch of masks shape:", masks.shape)
-    #     # print("Batch of original images shape:", orig_images.shape)
-    #     # print("Batch of original masks shape:", orig_masks.shape)
-    #     break
-    # exit()
-    # Model
     segmentation_model = Neuratt()
 
     if checkpoint_path:
@@ -331,8 +355,21 @@ def train(
         mode="max", # min
         verbose=True,
     )
+    epoch_checkpoint = ModelCheckpoint(
+        dirpath="results/checkpoints/",  # Directory to save models
+        filename="epoch-{epoch:02d}",  # Save every epoch as epoch-XX.ckpt
+        save_top_k=-1,  # Save all epochs
+        every_n_epochs=1  # Save every epoch
+    )
+    early_stopping = EarlyStopping(
+        monitor="val_loss",
+        patience=5,
+        min_delta=0.1,
+        mode="min",
+        verbose=True
+    )
 
-    callbacks = [model_checkpoint]
+    callbacks = [model_checkpoint, early_stopping, epoch_checkpoint]
 
     # Logging gradients
     # wandb.watch(
@@ -373,7 +410,7 @@ if __name__ == "__main__":
     # previous_run_id = "your_run_id_here"
     
     project = "whole_brain_seg"
-    name = "model-convnextv2"
+    name = "model-swinunet-2D-1024-1024"
 
     run = wandb.init(
         project=project,
@@ -389,8 +426,10 @@ if __name__ == "__main__":
     )
     
     train(
-        train_path="/scratch/dataset_patch_64_steps_32_clip_int_nocroptomask/train",
-        validation_path="/scratch/dataset_patch_64_steps_32_clip_int_nocroptomask/test",
+        train_path="/scratch/dataset_patch_64_steps_64_croptomask/train",
+        #"/scratch/dataset_patch_64_steps_32_clip_int_nocroptomask/train",
+        validation_path="/scratch/dataset_patch_64_steps_64_croptomask/test",
+        #"/scratch/dataset_patch_64_steps_32_clip_int_nocroptomask/test",
         logger=logger,
         batch_size=4,
         num_workers=4,
