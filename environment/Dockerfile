@@ -8,6 +8,8 @@ ARG GIT_ASKPASS
 ARG GIT_ACCESS_TOKEN
 COPY git-askpass /
 
+RUN apt-get update && apt-get install libgl1 -y
+
 RUN conda install -y \
         jupyterlab==4.3.4 \
     && conda clean -ya
@@ -25,5 +27,9 @@ RUN pip install --no-cache \
     wandb \
     torchvision==0.18.1 \
     natsort \
+    dask[distributed]==2024.4.1 \
     git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
-    monai[all]
+    monai[all] \
+    kornia \
+    boto3 \
+    opencv-python

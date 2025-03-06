@@ -9,6 +9,18 @@ import numpy as np
 import gc
 from natsort import natsorted
 
+def max_ignore_inf(arr):
+    finite_vals = arr[np.isfinite(arr) & ~np.isnan(arr)]  # Mask out infinities
+    return np.max(finite_vals) if finite_vals.size > 0 else None
+
+def fix_nans_and_infs(arr):
+    min_val = np.nanmin(arr)  # Smallest valid number ignoring NaNs
+    max_val = max_ignore_inf(arr)  # Largest valid number ignoring NaNs
+    # Replace NaNs with min_val and Infs with max_val
+    fixed_arr = np.nan_to_num(arr, nan=min_val, posinf=max_val, neginf=min_val)
+    
+    return fixed_arr, min_val, max_val
+
 class ImageMaskDataset(Dataset):
     def __init__(self, images_dir, masks_dir, transform=None):
         """
@@ -32,17 +44,14 @@ class ImageMaskDataset(Dataset):
         mask_path = self.mask_paths[idx]
 
         # image = np.array(tio.ScalarImage(image_path).numpy(), dtype=np.float32)
-        image = np.array(tif.imread(image_path), dtype=np.float32)
-        #np.array(tif.imread(image_path)[None, ...], dtype=np.float32)
+        image = torch.from_numpy(tif.imread(image_path)).float()#, dtype=torch.float32)
+        #np.array(tif.imread(image_path), dtype=np.float32)
         
         # orig_image = image.copy()
         # mask = np.array(tio.LabelMap(mask_path).numpy(), dtype=np.float32)
-        mask = np.array(tif.imread(mask_path), dtype=np.float32)
+        mask = torch.from_numpy(tif.imread(mask_path)).float()#, dtype=torch.float32)
+        #np.array(tif.imread(mask_path), dtype=np.float32)
         #np.array(tif.imread(mask_path)[None, ...], dtype=np.float32)
-        
-        # print("LOADING", image.shape, mask.shape)
-        # orig_mask = mask.copy()
-        
         # Apply transforms
         if self.transform:
             # subject = tio.Subject(
@@ -53,26 +62,27 @@ class ImageMaskDataset(Dataset):
             # image = transformed.image.data
             # mask = transformed.mask.data
 
-            transformed = self.transform(image=image, mask=mask)
-            image = transformed["image"]
-            mask = transformed["mask"]
-            # np.save("/results/check.npy", image)
-            # np.save("/results/mask.npy", mask)
+            # transformed = self.transform(image=image, mask=mask)
+            # image = transformed["image"]
+            # mask = transformed["mask"]
 
-        image_max = image.max()
-        image_min = image.min()
-        image = (image - image_min) / (image_max - image_min)
+            # Kornia
+            transformed = self.transform({'image': image.detach().clone(), 'mask': mask.detach().clone()})
 
-        if np.isnan(image).any():
-            np.save("/results/nan.npy", image)
-            print(f"Image nan: {image_path}")
-            exit()
-        
-        # print(image_max, image_min)
-        # print(image)
-        # np.save("/results/check.npy", image)
-        # s
-        
+            if not torch.isnan(transformed['image']).any() or not torch.isnan(transformed['mask']).any():
+                image = transformed['image']
+                mask = transformed['mask']
+
+            else:
+                print(f"Problem with {image_path} and {mask_path} when augmenting. Now: {torch.isnan(image).any()} {torch.isnan(mask).any()}")
+                print(f"Augmented: {torch.isnan(transformed['image']).any()} {torch.isnan(transformed['mask']).any()}")
+
+            # print(f"After transform {image.min()} {image.max()}")
+            
+        # if np.isnan(image).any():
+        #     np.save("/results/nan.npy", image)
+        #     print(f"Image after aug nan: {image_path}")
+        #     exit()
         
         return image[None, ...], mask[None, ...] #, orig_image, orig_mask
 

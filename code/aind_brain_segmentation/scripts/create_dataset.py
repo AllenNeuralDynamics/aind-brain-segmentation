@@ -10,6 +10,8 @@ from skimage import io
 import warnings
 from skimage import exposure, measure
 from skimage.transform import resize as ski_resize
+import multiprocessing
+
 warnings.filterwarnings('ignore')
 
 def create_folder(dest_dir: str, verbose = False) -> None:
@@ -44,6 +46,7 @@ def create_folder(dest_dir: str, verbose = False) -> None:
 
 def main(
     dataset_path,
+    masks_dataset_path,
     output_path,
     test_brain_ids,
     patch_size=64,
@@ -57,8 +60,10 @@ def main(
     volume_blocks=True
 ):
     dataset_path = Path(dataset_path)
+    masks_dataset_path = Path(masks_dataset_path)
     regex_id = r"_(\d{6})_"
-
+    pattern = r"Ex_\d{3}_Em_\d{3}"
+    
     print("Generating dataset in ", output_path)
     output_path = Path(output_path)
 
@@ -66,8 +71,8 @@ def main(
         create_folder(str(output_path.joinpath(f"{fd}/images")))
         create_folder(str(output_path.joinpath(f"{fd}/masks")))
 
-    if dataset_path.exists():
-        masks_paths = list(dataset_path.glob("*_postprocessed.tif*"))
+    if dataset_path.exists() and masks_dataset_path.exists():
+        masks_paths = list(masks_dataset_path.glob("*_postprocessed.tif*"))
         brain_id_bbox = {}
 
         if len(masks_paths):
@@ -110,100 +115,115 @@ def main(
                 #     print(f"Skipping {extracted_number}")
                 #     continue
 
-                image_path = list(dataset_path.glob(f"SmartSPIM_{extracted_number}*.tif*"))[0]
-                # image_block = tif.imread(image_path)
-                image_block = io.imread(image_path)
+                image_paths = list(dataset_path.glob(f"*{extracted_number}*.tif*"))
+                print(f"{len(image_paths)} channels for {extracted_number}")
+                for image_path in image_paths:
+                    # image_block = tif.imread(image_path)
 
-                crop_to_mask_region = (
-                    slice(None),
-                    slice(None),
-                    slice(None),
-                )
+                    matches = re.findall(pattern, str(image_path))
+                    if len(matches):
+                        channel_name = matches[0]
 
-                if crop_to_mask:
-                    region = (
-                        slice(largest_region.bbox[0], largest_region.bbox[3]),
-                        slice(largest_region.bbox[1], largest_region.bbox[4]),
-                        slice(largest_region.bbox[2], largest_region.bbox[5]),
+                    else:
+                        channel_name = str(image_path.stem).split("_")[-1]
+
+                    print(f"Channel: {channel_name} for {image_path}")
+                    image_block = io.imread(image_path)
+    
+                    crop_to_mask_region = (
+                        slice(None),
+                        slice(None),
+                        slice(None),
                     )
-                    print(f"Cropping to mask in region: {crop_to_mask_region}")
+    
+                    if crop_to_mask:
+                        region = (
+                            slice(largest_region.bbox[0], largest_region.bbox[3]),
+                            slice(largest_region.bbox[1], largest_region.bbox[4]),
+                            slice(largest_region.bbox[2], largest_region.bbox[5]),
+                        )
+                        print(f"Cropping to mask in region: {crop_to_mask_region}")
+                        
+                    extracted_mask_block = data_block[crop_to_mask_region]
+                    # [
+                    #     largest_region.bbox[0]: largest_region.bbox[3],
+                    #     largest_region.bbox[1]: largest_region.bbox[4],
+                    #     largest_region.bbox[2]: largest_region.bbox[5],
+                    # ]
+    
+                    extracted_image_block = image_block[crop_to_mask_region]
+                    # [
+                    #     largest_region.bbox[0]: largest_region.bbox[3],
+                    #     largest_region.bbox[1]: largest_region.bbox[4],
+                    #     largest_region.bbox[2]: largest_region.bbox[5],
+                    # ]
+    
+                    extracted_mask_block = np.squeeze(extracted_mask_block)
+                    extracted_image_block = np.squeeze(extracted_image_block)
+
+                    # if extracted_number != "718357":
+                    #     continue
+    
+                    if extracted_number == "729533":
+                        print(f"Fixing orientation of {extracted_number}")
+                        
+                        extracted_mask_block = np.flip(
+                            np.transpose(
+                                extracted_mask_block,
+                                (-1, 1, 0)
+                            ), axis=1
+                        )
+                        extracted_image_block = np.flip(
+                            np.transpose(
+                                extracted_image_block,
+                                (-1, 1, 0)
+                            ), axis=1
+                        )
+    
+                    if extracted_image_block.ndim != 3:
+                        raise ValueError(f"Image has the following shape: {extracted_image_block.shape}")
+    
+                    if extracted_mask_block.ndim != 3:
+                        raise ValueError(f"Image has the following shape: {extracted_mask_block.shape}")
+    
+                    print(f"Writing blocks from {extracted_number} to {images_output_path.parent}")
+                    print(f"Image shape: {extracted_image_block.shape} - Mask shape: {extracted_mask_block.shape}")
                     
-                extracted_mask_block = data_block[crop_to_mask_region]
-                # [
-                #     largest_region.bbox[0]: largest_region.bbox[3],
-                #     largest_region.bbox[1]: largest_region.bbox[4],
-                #     largest_region.bbox[2]: largest_region.bbox[5],
-                # ]
-
-                extracted_image_block = image_block[crop_to_mask_region]
-                # [
-                #     largest_region.bbox[0]: largest_region.bbox[3],
-                #     largest_region.bbox[1]: largest_region.bbox[4],
-                #     largest_region.bbox[2]: largest_region.bbox[5],
-                # ]
-
-                extracted_mask_block = np.squeeze(extracted_mask_block)
-                extracted_image_block = np.squeeze(extracted_image_block)
-
-                if extracted_number == "729533":
-                    print(f"Fixing orientation of {extracted_number}")
-                    
-                    extracted_mask_block = np.flip(
-                        np.transpose(
-                            extracted_mask_block,
-                            (-1, 1, 0)
-                        ), axis=1
-                    )
-                    extracted_image_block = np.flip(
-                        np.transpose(
-                            extracted_image_block,
-                            (-1, 1, 0)
-                        ), axis=1
-                    )
-
-                if extracted_image_block.ndim != 3:
-                    raise ValueError(f"Image has the following shape: {extracted_image_block.shape}")
-
-                if extracted_mask_block.ndim != 3:
-                    raise ValueError(f"Image has the following shape: {extracted_mask_block.shape}")
-
-                print(f"Writing blocks from {extracted_number} to {images_output_path.parent}")
-                print(f"Image shape: {extracted_image_block.shape} - Mask shape: {extracted_mask_block.shape}")
-                
-                if volume_blocks:
-                    patch_image_mask_data(
-                        data_block=extracted_image_block,
-                        mask_block=extracted_mask_block,
-                        output_images=images_output_path,
-                        output_masks=masks_output_path,
-                        smartspim_id=extracted_number,
-                        patch_size=patch_size,
-                        step_size=step_size,
-                        pmin=pmin,
-                        pmax=pmax,
-                        int_threshold=int_threshold,
-                        apply_percentile_norm=apply_percentile_norm,
-                        clip_int=clip_int,
-                    )
-
-                else:
-                    print("Generating slices!")
-                    patch_image_in_slices(
-                        data_block=extracted_image_block,
-                        mask_block=extracted_mask_block,
-                        output_images=images_output_path,
-                        output_masks=masks_output_path,
-                        smartspim_id=extracted_number,
-                        image_width=1024,
-                        image_height=1024,
-                        pmin=pmin,
-                        pmax=pmax,
-                        int_threshold=int_threshold,
-                        apply_percentile_norm=apply_percentile_norm,
-                        clip_int=clip_int,
-                    )
-                    
-                print("*"*20)
+                    if volume_blocks:
+                        patch_image_mask_data(
+                            data_block=extracted_image_block,
+                            mask_block=extracted_mask_block,
+                            output_images=images_output_path,
+                            output_masks=masks_output_path,
+                            smartspim_id=extracted_number,
+                            patch_size=patch_size,
+                            step_size=step_size,
+                            pmin=pmin,
+                            pmax=pmax,
+                            int_threshold=int_threshold,
+                            apply_percentile_norm=apply_percentile_norm,
+                            clip_int=clip_int,
+                        )
+    
+                    else:
+                        print("Generating slices!")
+                        patch_image_in_slices(
+                            data_block=extracted_image_block,
+                            mask_block=extracted_mask_block,
+                            output_images=images_output_path,
+                            output_masks=masks_output_path,
+                            smartspim_id=extracted_number,
+                            image_width=1024,
+                            image_height=1024,
+                            pmin=pmin,
+                            pmax=pmax,
+                            int_threshold=int_threshold,
+                            apply_percentile_norm=apply_percentile_norm,
+                            clip_int=clip_int,
+                            channel_name=channel_name
+                        )
+                        
+                    print("*"*20)
             
         else:
             raise FileNotFoundError(f"Path {dataset_path} does not have tif files.")
@@ -354,7 +374,99 @@ def constrat_enhancement(normalized_image, k_factor=8, clip_limit=0.03):
 
     return equalized_image
 
+def max_ignore_inf(arr):
+    finite_vals = arr[np.isfinite(arr) & ~np.isnan(arr)]  # Mask out infinities
+    return np.max(finite_vals) if finite_vals.size > 0 else None
+
+def fix_nans_and_infs(arr):
+    min_val = np.nanmin(arr)
+    max_val = max_ignore_inf(arr)
+
+    fixed_arr = np.nan_to_num(arr, nan=min_val, posinf=max_val, neginf=min_val)
+    
+    return fixed_arr
+
+def process_slice(i, axis, data_block, mask_block, output_images, output_masks, smartspim_id, image_width, image_height, channel_name):
+    """Process a single slice and save the result."""
+    if axis == 0:
+        slice_mask = mask_block[i, :, :]
+        slice_data = data_block[i, :, :]
+    elif axis == 1:
+        slice_mask = mask_block[:, i, :]
+        slice_data = data_block[:, i, :]
+    else:  # axis == 2
+        slice_mask = mask_block[:, :, i]
+        slice_data = data_block[:, :, i]
+
+    max_id = slice_mask.max()
+    max_data_block = slice_data.max()
+    # print(f"Job [{os.getpid()}] processing {smartspim_id} plane {i}")
+
+    if max_id and max_data_block:
+        slice_data_resized = ski_resize(slice_data, (image_height, image_width), order=4, preserve_range=True)
+        slice_mask_resized = ski_resize(slice_mask, (image_height, image_width), order=0, preserve_range=True)
+
+        slice_data_resized = fix_nans_and_infs(slice_data_resized)
+        slice_mask_resized = fix_nans_and_infs(slice_mask_resized)
+
+        if np.isnan(slice_data_resized).any() or np.isinf(slice_data_resized).any():
+            print(f"[!!!] Problem processing: {smartspim_id}_image_slice_{i}_ax_{axis}")
+
+        if np.isnan(slice_mask_resized).any() or np.isinf(slice_mask_resized).any():
+            print(f"[!!!] Problem processing: {smartspim_id}_mask_slice_{i}_ax_{axis}")
+
+        output_image_slice = output_images.joinpath(f"{smartspim_id}_image_slice_{i}_ax_{axis}_{channel_name}.tif")
+        output_mask_slice = output_masks.joinpath(f"{smartspim_id}_mask_slice_{i}_ax_{axis}_{channel_name}.tif")
+
+        io.imsave(output_image_slice, slice_data_resized.astype(np.float16))
+        io.imsave(output_mask_slice, slice_mask_resized.astype(np.uint8))
+    else:
+        # print(f"[!] Ignoring slice {i} - Max id: {max_id}")
+        pass
+
 def patch_image_in_slices(
+    data_block,
+    mask_block,
+    channel_name,
+    output_images,
+    output_masks,
+    smartspim_id,
+    image_width=1024,
+    image_height=1024,
+    pmin=1,
+    pmax=99,
+    int_threshold=40,
+    apply_percentile_norm=False,
+    clip_int=True,
+    num_workers=multiprocessing.cpu_count(),
+):
+    print("input shapes ", data_block.shape, mask_block.shape)
+    output_images = Path(output_images)
+    output_masks = Path(output_masks)
+
+    if clip_int:
+        print("Applying clipping")
+        indices = np.where(data_block <= int_threshold)
+        data_block[indices] = 0  # Removed `padded_data_block` since it wasn't defined
+
+    if apply_percentile_norm:
+        print("Applying percentile norm")
+        data_block = percentile_normalization(data=data_block, percentiles=(pmin, pmax), clip=False)
+
+    tasks = []
+    for axis in range(3):
+        print(f"Processing axis {axis}")
+        n_slices = data_block.shape[axis]
+        print(f"Processing {n_slices} slices for {smartspim_id} in axis {axis}")
+
+        for i in range(n_slices):
+            tasks.append((i, axis, data_block, mask_block, output_images, output_masks, smartspim_id, image_width, image_height, channel_name))
+
+    # Use multiprocessing pool to parallelize
+    with multiprocessing.Pool(processes=num_workers) as pool:
+        pool.starmap(process_slice, tasks)
+
+def patch_image_in_slices_2(
     data_block,
     mask_block,
     output_images,
@@ -393,11 +505,10 @@ def patch_image_in_slices(
             clip=False
         )
 
-    z_slices = data_block.shape[0]
-    print(f"Processing {z_slices} slices for {smartspim_id}")
     for axis in range(3):
-        print(f"Processing axis {axis}")
-        for i in range(z_slices):
+        n_slices = data_block.shape[0]
+        print(f"Processing {axis} with {n_slices} slices for {smartspim_id}")
+        for i in range(n_slices):
 
             slice_mask = None
             slice_data = None
@@ -425,7 +536,16 @@ def patch_image_in_slices(
                 slice_mask_resized = ski_resize(
                     slice_mask, (image_height, image_width), order=0, preserve_range=True
                 )
-        
+
+                slice_data_resized = fix_nans_and_infs(slice_data_resized)
+                slice_mask_resized = fix_nans_and_infs(slice_mask_resized)
+
+                if np.isnan(slice_data_resized).any() or np.isinf(slice_data_resized).any():
+                    print(f"Problem processing: {smartspim_id}_image_slice_{i}_ax_{axis}")
+
+                if np.isnan(slice_mask_resized).any() or np.isinf(slice_mask_resized).any():
+                    print(f"Problem processing: {smartspim_id}_mask_slice_{i}_ax_{axis}")
+                
                 output_image_slice = output_images.joinpath(f"{smartspim_id}_image_slice_{i}_ax_{axis}.tif")
                 output_mask_slice = output_masks.joinpath(f"{smartspim_id}_mask_slice_{i}_ax_{axis}.tif")
         
@@ -433,7 +553,8 @@ def patch_image_in_slices(
                 io.imsave(output_mask_slice, slice_mask_resized.astype(np.uint8))
         
             else:
-                print(f"Ignoring slice {i} - Max id: {max_id}")
+                # print(f"Ignoring slice {i} - Max id: {max_id}")
+                pass
     
 if __name__ == "__main__":
     step_sizes = [64]#[64, 128]
@@ -459,7 +580,8 @@ if __name__ == "__main__":
                 output_path = f"{output_path}_nocroptomask"
                 
             main(
-                dataset_path="/data/smartspim_brain_masks",
+                dataset_path="/scratch/downloaded_dataset_images",
+                masks_dataset_path="/data/smartspim_brain_masks",
                 output_path=output_path,
                 test_brain_ids=['727461', '757189'],
                 patch_size=patch_size,

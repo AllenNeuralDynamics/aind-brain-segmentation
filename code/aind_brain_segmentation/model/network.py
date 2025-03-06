@@ -237,6 +237,26 @@ class ConvNeXtV2Encoder(torch.nn.Module):
 #         self.skip_connections = (skip_1, skip_2, skip_3)
 #         return x
 
+import kornia.augmentation as K
+
+class NormalizeAndRescaleWrapper(torch.nn.Module):
+    def __init__(self, mean=0.0, std=1.0):
+        super().__init__()
+        self.normalize = K.Normalize(mean=mean, std=std)
+        
+    def forward(self, x):
+        # First normalize
+        normalized = self.normalize(x)
+        
+        # Find current min and max
+        batch_min = normalized.min()
+        batch_max = normalized.max()
+        
+        # Rescale to [0,1]
+        rescaled = (normalized - batch_min) / (batch_max - batch_min)
+        rescaled = rescaled.squeeze()
+        return rescaled
+
 
 class EncoderPath(nn.Module):
     """
@@ -573,6 +593,24 @@ def dice_coefficient(y_true, y_pred):
 def dice_loss(y_true, y_pred):
     return 1.0 - dice_coefficient(y_true, y_pred)
 
+def filter_nan_images(batch, y=None):
+    # Get indices of valid images (no NaNs)
+    valid_index = [i for i, img in enumerate(batch) if not torch.isnan(img).any()]
+
+    if len(valid_index) == batch.shape[0]:
+        return batch, y
+    
+    if not valid_index:
+        return None, None  # Return None if no valid images remain
+
+    # Efficiently select valid images and labels
+    valid_images = torch.stack([batch[i] for i in valid_index])
+    valid_y = None
+
+    if y is not None:
+        valid_y = torch.stack([y[i] for i in valid_index])
+
+    return valid_images, valid_y
 
 class Neuratt(L.LightningModule):
     def __init__(self) -> None:
@@ -586,6 +624,8 @@ class Neuratt(L.LightningModule):
             feature_size=12,
             spatial_dims=2,
         )
+
+        self.norm_data = NormalizeAndRescaleWrapper()
 
         # mnets.ViTAutoEnc(
         #     in_channels=1,
@@ -647,6 +687,13 @@ class Neuratt(L.LightningModule):
         
     def training_step(self, batch, batch_idx):
         x, y = batch
+        # x = self.__norm_batch(x)
+
+        x, y = filter_nan_images(x, y)
+        if x is None:
+            print("Skipping batch due to NaNs")
+            return 0.0
+
         decoder_result = self(x)
 
         # Loss function
@@ -656,6 +703,7 @@ class Neuratt(L.LightningModule):
         # print("Decoder: ", y.shape, decoder_result.shape)
 
         prob_mask = decoder_result.sigmoid()
+        prob_mask = torch.nan_to_num(prob_mask, nan=torch.finfo(prob_mask.dtype).tiny)
         
         loss = self.loss_fn(prob_mask, y)
         if torch.isnan(loss):
@@ -716,15 +764,20 @@ class Neuratt(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
+        x, y = filter_nan_images(x, y)
+        
+        if x is None:
+            print("Skipping batch due to NaNs")
+            return 0.0
+        # x = self.__norm_batch(x)
+        
         decoder_result = self(x)
-        # loss = nn.functional.binary_cross_entropy(
-        #     input=decoder_result, target=y
-        # )
-        # print("Decoder: ", y.shape, decoder_result.shape)
-        loss = self.loss_fn(decoder_result, y)
+        prob_mask = decoder_result.sigmoid()
+        prob_mask = torch.nan_to_num(prob_mask, nan=torch.finfo(prob_mask.dtype).tiny)
+        
+        loss = self.loss_fn(prob_mask, y)
         self.log("val_loss", loss.item())
 
-        prob_mask = decoder_result.sigmoid()
         pred_mask = (prob_mask > 0.5).float()
 
         self.dice_score_metric(pred_mask, y)
@@ -798,12 +851,25 @@ class Neuratt(L.LightningModule):
         }
         
         return (x, pred_mask, metrics)
+    
+    def __norm_batch(self, x):
+        for i in range(x.shape[0]):
+            x[i] = self.norm_data(x[i])
+
+        return x
 
     def predict(self, batch, threshold=0.5, dataloader_idx=0):
-
+        batch, _ = filter_nan_images(batch)
+        if batch is None:
+            print("Skipping batch due to NaNs")
+            return 0.0
+        
+        batch = self.__norm_batch(batch)
         decoder_result = self(batch)
 
         prob_mask = decoder_result.sigmoid()
+        prob_mask = torch.nan_to_num(prob_mask, nan=torch.finfo(prob_mask.dtype).tiny)
+        
         pred_mask = (prob_mask > threshold).float()
         
         return pred_mask, prob_mask

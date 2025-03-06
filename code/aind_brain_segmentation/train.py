@@ -32,7 +32,11 @@ import random
 import torch
 import warnings
 import albumentations as A
+import kornia.augmentation as K
+import kornia.geometry.transform as KG
+from kornia.constants import Resample
 
+torch.backends.cudnn.benchmark = True
 warnings.filterwarnings("ignore")
 
 def random_intensity_scaling(data, scale_range=(0.8, 1.2)):
@@ -139,10 +143,95 @@ def get_2d_transforms():
         ], p=intensity_prob),
 
         # Additional Effects
-        A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # Blur with variable kernel size
+        A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # Blur with variable kernel size,
+        A.RandomResizedCrop(
+            size=(1024, 1024),
+            scale=(0.08, 1.0),
+            ratio=(0.75, 1.3333333333333333),
+            interpolation=1,
+            mask_interpolation=0,
+            p=1.0
+        ),
+        A.PadIfNeeded(min_height=1024, min_width=1024),
+        
         # A.Normalize(mean=(0.0,), std=(1.0,)),
         # A.Normalize(mean=0, std=1, max_pixel_value=65535),  # Rescale intensity (0-1)
     ])
+
+    return transform
+
+class NormalizeAndRescaleWrapper(torch.nn.Module):
+        def __init__(self, mean=0.0, std=1.0):
+            super().__init__()
+            self.normalize = K.Normalize(mean=mean, std=std)
+            
+        def forward(self, x):
+            # First normalize
+            normalized = self.normalize(x)
+            
+            # Find current min and max
+            batch_min = normalized.min()
+            batch_max = normalized.max()
+            
+            # Rescale to [0,1]
+            rescaled = (normalized - batch_min) / (batch_max - batch_min)
+            rescaled = rescaled.squeeze()
+            return rescaled
+
+def kornia_2d_augmentations():
+    
+    transform = K.AugmentationSequential(
+        K.RandomHorizontalFlip(p=0.5),
+        K.RandomVerticalFlip(p=0.5),
+        # K.RandomGamma(gamma=(0.7, 1.3), p=0.3, clip_output=False),  # Gamma correction only for images
+        K.RandomResizedCrop(
+            size=(1024, 1024),
+            scale=(0.08, 1.0),
+            ratio=(0.75, 1.3333),
+            resample=Resample.BILINEAR,
+            align_corners=False,
+            p=0.5,
+        ),
+        K.RandomAffine(
+            degrees=1,
+            scale=(0.99, 1.01),
+            translate=0.01,
+            p=0.4,
+            align_corners=False
+        ),
+        K.RandomBrightness(0.05, p=0.3, clip_output=False),
+        K.RandomContrast(0.05, p=0.3, clip_output=False),
+        K.RandomGaussianBlur(
+            kernel_size=(7, 7),
+            sigma=(5.0, 10.0),
+            border_type='reflect',
+            separable=True,
+            p=0.3,
+        ),
+        K.RandomMotionBlur(
+            kernel_size=15,
+            angle=(-30.0, 30.0),  # Motion blur in random directions
+            direction=(-0.5, 0.5),  # Both left/right & up/down motion
+            resample='bilinear', 
+            p=0.3,
+        ),
+        K.RandomElasticTransform(
+            kernel_size=(81, 81),
+            sigma=(32.0, 32.0),
+            alpha=(1.0, 1.0),
+            align_corners=False,
+            padding_mode='zeros',
+            p=0.3,
+        ),
+        NormalizeAndRescaleWrapper(),
+        # K.Normalize(mean=0.0, std=1.0, p=1.0),
+        # T.ToTensor()
+        # K.RandomGaussianNoise(0.02, p=1.0),
+        random_apply=False,
+        data_keys=None,
+        keepdim=True,
+        # random_apply_weights=[1.0, 0.5, 0.5, 0.5],
+    )
 
     return transform
 
@@ -309,7 +398,8 @@ def train(
     seed_everything(42, workers=True)
     results_folder = os.path.abspath("/results")
 
-    transforms = None#get_2d_transforms() #get_transforms() # get_transforms_monai()
+    transforms = kornia_2d_augmentations()
+    #kornia_2d_augmentations()#get_2d_transforms() #get_transforms() # get_transforms_monai()
     # Train and validation datasets
 
     train_path = Path(train_path)
@@ -351,7 +441,7 @@ def train(
     model_checkpoint = ModelCheckpoint(
         monitor="validation/metrics/dice_score", # val_loss
         filename="best_model",
-        save_top_k=1,
+        save_top_k=3,
         mode="max", # min
         verbose=True,
     )
@@ -391,6 +481,7 @@ def train(
         # overfit_batches=1,
         log_every_n_steps=10,
         limit_predict_batches=10,
+        # accumulate_grad_batches=2,
     )
     trainer.fit(
         model=segmentation_model,
@@ -407,10 +498,10 @@ def train(
 
 if __name__ == "__main__":
     # logger = CSVLogger("/results/whole_brain_seg", name="model-01")
-    # previous_run_id = "your_run_id_here"
+    previous_run_id = "9hzda9rw"
     
     project = "whole_brain_seg"
-    name = "model-swinunet-2D-1024-1024"
+    name = "model-swinunet-2D-1024-1024-channels-1-exaspim"
 
     run = wandb.init(
         project=project,
@@ -432,8 +523,8 @@ if __name__ == "__main__":
         #"/scratch/dataset_patch_64_steps_32_clip_int_nocroptomask/test",
         logger=logger,
         batch_size=4,
-        num_workers=4,
-        checkpoint_path=None
+        num_workers=16,
+        checkpoint_path="/results/whole_brain_seg/whole_brain_seg/540wd4q8/checkpoints/best_model.ckpt"#"/results/whole_brain_seg/whole_brain_seg/8if1936s/checkpoints/best_model.ckpt"
     )
     # "/results/whole_brain_seg/whole_brain_seg/0fp8w3op/checkpoints/best_model.ckpt"
     # train_with_kfold(
