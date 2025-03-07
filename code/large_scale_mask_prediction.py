@@ -21,7 +21,7 @@ from skimage.morphology import ball, remove_small_objects
 from skimage.transform import resize as ski_resize
 
 from aind_brain_segmentation.model.network import Neuratt
-
+import re
 
 def post_process_mask(mask, threshold=0.5, min_size=100):
     mask = binary_fill_holes(mask)
@@ -124,7 +124,7 @@ def in_mem_computation(
     image_height,
     image_width,
     prob_threshold,
-    inner_batch_size=4,
+    inner_batch_size=1,
 ):
 
     # Creating outputs
@@ -236,6 +236,11 @@ def in_mem_computation(
     pred_mask, prob_mask = batched_predict(
         segmentation_model, slice_data, prob_threshold, inner_batch_size
     )
+
+    # If we're running multiple datasets at the same time
+    del slice_data
+    del segmentation_model
+    
     pred_mask = np.squeeze(pred_mask).astype(np.float32)
     prob_mask = np.squeeze(prob_mask)
 
@@ -491,6 +496,9 @@ def lazy_computation(
         if output_data_path is not None:
             output_raw_data[unpadded_global_slice] = slice_data_orig[None, None, ...]
 
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
 
 def run_brain_segmentation(
     image_path,
@@ -572,6 +580,47 @@ def run_brain_segmentation(
 
     print("Segmentation finished!")
 
+def run_multiple_datasets():
+    data_folder = Path(os.path.abspath("../data"))
+    results_folder = Path(os.path.abspath("../results"))
+    scratch_folder = Path(os.path.abspath("../scratch"))
+
+    image_paths = [
+        "s3://aind-open-data/SmartSPIM_774928_2024-12-17_17-41-54_stitched_2025-01-11_01-02-44/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+        "s3://aind-open-data/SmartSPIM_764220_2025-01-30_11-15-58_stitched_2025-03-06_10-04-25/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
+        "s3://aind-open-data/SmartSPIM_782499_2025-03-06_00-01-19_stitched_2025-03-07_05-11-31/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
+        "s3://aind-open-data/SmartSPIM_771602_2025-03-05_22-02-27_stitched_2025-03-07_08-59-06/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+        "s3://aind-open-data/SmartSPIM_714778_2024-03-12_22-40-29_stitched_2024-03-14_06-09-38/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr"
+    ]
+
+    model_path = data_folder.joinpath("best_model_097_2d.ckpt")
+
+    for image_path in image_paths:
+        match = re.search(r"(SmartSPIM_\d+)", image_path)
+        smartspim_id = None
+        if match:
+            smartspim_id = match.group(1)
+        else:
+            raise ValueError("Please, provide a SmartSPIM ID")
+
+        print(f"Processing dataset: {smartspim_id}")
+        
+        curr_res_folder = results_folder.joinpath(smartspim_id)
+        curr_res_folder.mkdir(parents=True, exist_ok=True)
+        
+        run_brain_segmentation(
+            image_path=image_path,
+            model_path=model_path,
+            output_folder=curr_res_folder,
+            target_size_mb=2048,
+            n_workers=0,
+            super_chunksize=None,
+            scale=3,
+            scratch_folder=curr_res_folder,
+            image_height=1024,
+            image_width=1024,
+            prob_threshold=0.7,
+        )
 
 def main():
     data_folder = Path(os.path.abspath("../data"))
@@ -597,4 +646,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    run_multiple_datasets()
