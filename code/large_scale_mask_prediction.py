@@ -33,44 +33,31 @@ def post_process_mask(mask, threshold=0.5, min_size=100):
     mask = mask > threshold
     return mask
 
-
-def run_brain_segmentation(
-    image_path,
-    model_path,
-    output_folder,
-    target_size_mb=2048,
-    n_workers=0,
-    super_chunksize=None,
-    scale=3,
-    scratch_folder=None,
-    image_height=1024,
-    image_width=1024,
-    prob_threshold=0.7,
+def in_mem_computation(
+    lazy_data,
+    segmentation_model,
+    output_seg_path,
+    output_prob_path,
+    output_data_path,
+    target_size_mb,
+    n_workers,
+    batch_size,
+    super_chunksize,
 ):
-    output_folder = Path(output_folder)
+    pass
 
-    if not output_folder.exists():
-        raise ValueError(f"Please, provide a valid output path. Path: {output_folder}")
-
-    model_path = Path(model_path)
-
-    # Creating model
-    segmentation_model = Neuratt()
-
-    if model_path.exists():
-        print(f"Loading path from {model_path}")
-        segmentation_model = Neuratt.load_from_checkpoint(str(model_path))
-    else:
-        raise ValueError(f"Please, provide a valid model path")
-
-    output_seg_path = output_folder.joinpath("segmentation_mask.zarr")
-    output_prob_path = output_folder.joinpath("probabilities.zarr")
-    output_data_path = None
-
-    if scratch_folder is not None:
-        scratch_folder = Path(scratch_folder)
-        output_data_path = scratch_folder.joinpath("data.zarr")
-
+def lazy_computation(
+    lazy_data,
+    segmentation_model,
+    output_seg_path,
+    output_prob_path,
+    output_data_path,
+    target_size_mb,
+    n_workers,
+    batch_size,
+    super_chunksize,
+):
+    # Lazy computation code
     device = None
 
     pin_memory = True
@@ -80,12 +67,6 @@ def run_brain_segmentation(
 
     axis_pad = 0
     overlap_prediction_chunksize = (axis_pad, axis_pad, axis_pad)
-
-    lazy_data = (
-        ImageReaderFactory()
-        .create(data_path=str(image_path), parse_path=False, multiscale=scale)
-        .as_dask_array()
-    )
 
     prediction_chunksize = (4, lazy_data.shape[-2], lazy_data.shape[-1])
 
@@ -268,6 +249,77 @@ def run_brain_segmentation(
 
         if output_data_path is not None:
             output_raw_data[unpadded_global_slice] = slice_data_orig[None, None, ...]
+
+def run_brain_segmentation(
+    image_path,
+    model_path,
+    output_folder,
+    target_size_mb=2048,
+    n_workers=0,
+    super_chunksize=None,
+    scale=3,
+    scratch_folder=None,
+    image_height=1024,
+    image_width=1024,
+    prob_threshold=0.7,
+    run_in_mem=True
+):
+    output_folder = Path(output_folder)
+
+    if not output_folder.exists():
+        raise ValueError(f"Please, provide a valid output path. Path: {output_folder}")
+
+    model_path = Path(model_path)
+
+    # Creating model
+    segmentation_model = Neuratt()
+
+    if model_path.exists():
+        print(f"Loading path from {model_path}")
+        segmentation_model = Neuratt.load_from_checkpoint(str(model_path))
+    else:
+        raise ValueError(f"Please, provide a valid model path")
+
+    output_seg_path = output_folder.joinpath("segmentation_mask.zarr")
+    output_prob_path = output_folder.joinpath("probabilities.zarr")
+    output_data_path = None
+
+    if scratch_folder is not None:
+        scratch_folder = Path(scratch_folder)
+        output_data_path = scratch_folder.joinpath("data.zarr")
+
+    lazy_data = (
+        ImageReaderFactory()
+        .create(data_path=str(image_path), parse_path=False, multiscale=scale)
+        .as_dask_array()
+    )
+
+    if run_in_mem:
+        in_mem_computation(
+            lazy_data,
+            segmentation_model,
+            output_seg_path,
+            output_prob_path,
+            output_data_path,
+            target_size_mb,
+            n_workers,
+            batch_size,
+            super_chunksize,
+        )
+
+    else:
+        # Running lazily if dataset is too big
+        lazy_computation(
+            lazy_data,
+            segmentation_model,
+            output_seg_path,
+            output_prob_path,
+            output_data_path,
+            target_size_mb,
+            n_workers,
+            batch_size,
+            super_chunksize,
+        )
 
     print("Segmentation finished!")
 
