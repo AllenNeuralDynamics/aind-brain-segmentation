@@ -33,9 +33,7 @@ class Block(nn.Module):
         self.act = nn.GELU()
         self.grn = GRN(4 * dim)
         self.pwconv2 = nn.Linear(4 * dim, dim)
-        self.drop_path = (
-            DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        )
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
         input = x
@@ -93,9 +91,7 @@ class ConvNeXtV2(nn.Module):
         self.stages = (
             nn.ModuleList()
         )  # 4 feature resolution stages, each consisting of multiple residual blocks
-        dp_rates = [
-            x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))
-        ]
+        dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
         cur = 0
         for i in range(4):
             stage = nn.Sequential(
@@ -159,21 +155,15 @@ def convnextv2_tiny(**kwargs):
 
 
 def convnextv2_base(**kwargs):
-    model = ConvNeXtV2(
-        depths=[3, 3, 27, 3], dims=[128, 256, 512, 1024], **kwargs
-    )
+    model = ConvNeXtV2(depths=[3, 3, 27, 3], dims=[128, 256, 512, 1024], **kwargs)
     return model
 
 
 def convnextv2_large(**kwargs):
-    model = ConvNeXtV2(
-        depths=[3, 3, 27, 3], dims=[192, 384, 768, 1536], **kwargs
-    )
+    model = ConvNeXtV2(depths=[3, 3, 27, 3], dims=[192, 384, 768, 1536], **kwargs)
     return model
 
 
 def convnextv2_huge(**kwargs):
-    model = ConvNeXtV2(
-        depths=[3, 3, 27, 3], dims=[352, 704, 1408, 2816], **kwargs
-    )
+    model = ConvNeXtV2(depths=[3, 3, 27, 3], dims=[352, 704, 1408, 2816], **kwargs)
     return model

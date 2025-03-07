@@ -95,9 +95,7 @@ class LayerNorm(nn.Module):
     with shape (batch_size, channels, height, width).
     """
 
-    def __init__(
-        self, normalized_shape, eps=1e-6, data_format="channels_last"
-    ):
+    def __init__(self, normalized_shape, eps=1e-6, data_format="channels_last"):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(normalized_shape))
         self.bias = nn.Parameter(torch.zeros(normalized_shape))

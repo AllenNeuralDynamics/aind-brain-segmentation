@@ -6,22 +6,23 @@ import logging
 from datetime import datetime
 
 import lightning as L
+import monai.networks.nets as mnets
+import numpy as np
 import torch
 import torch.nn as nn
-from segmentation_models_pytorch.losses import BINARY_MODE, DiceLoss,FocalLoss
+import torch.nn.functional as F
+import torchvision.transforms as T
+from segmentation_models_pytorch.losses import BINARY_MODE, DiceLoss, FocalLoss
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 # from torchviz import make_dot
 from torchmetrics import Accuracy, F1Score, JaccardIndex
+
+import wandb
 
 from .layers.blocks import (ConvNextV2, ConvNextV2Block, ConvolutionalBlock,
                             DecoderUpsampleBlock, EncoderDecoderConnections,
                             PrintLayer, SegmentationHead)
 
-import torch.nn.functional as F
-import monai.networks.nets as mnets
-import wandb
-import torchvision.transforms as T
-import numpy as np
 
 class DiceFocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2, smooth=1e-6):
@@ -33,25 +34,26 @@ class DiceFocalLoss(nn.Module):
     def forward(self, logits, targets):
         # Apply sigmoid to logits to get probabilities
         probs = torch.sigmoid(logits)
-        
+
         # Flatten tensors for Dice loss computation
         probs_flat = probs.view(-1)
         targets_flat = targets.view(-1)
-        
+
         # Dice Loss
         intersection = (probs_flat * targets_flat).sum()
-        dice_loss = 1 - (2. * intersection + self.smooth) / (
+        dice_loss = 1 - (2.0 * intersection + self.smooth) / (
             probs_flat.sum() + targets_flat.sum() + self.smooth
         )
-        
+
         # Focal Loss
-        bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
+        bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
         focal_loss = self.alpha * (1 - torch.exp(-bce_loss)) ** self.gamma * bce_loss
         focal_loss = focal_loss.mean()
-        
+
         # Combine Dice and Focal Losses
         combined_loss = dice_loss + focal_loss
         return combined_loss
+
 
 def create_logger(output_log_path: str) -> logging.Logger:
     """
@@ -106,6 +108,7 @@ class ConvNeXtV2Encoder(torch.nn.Module):
     def forward(self, x):
         return self._encoder.forward_features(x)
 
+
 # class EncoderPath(nn.Module):
 #     """
 #     Encoder path of the Unet
@@ -135,7 +138,7 @@ class ConvNeXtV2Encoder(torch.nn.Module):
 #             padding="same",
 #             point_wise_scaling=2,
 #         )
-        
+
 #         self.max_2 = nn.MaxPool3d(
 #             kernel_size=2
 #         )
@@ -184,7 +187,7 @@ class ConvNeXtV2Encoder(torch.nn.Module):
 #         # Input: N, 1, 128, 128, 128 | output: N, 16, 128, 128, 128
 #         skip_1 = self.conv_1(x)
 #         # self.print_layer(x, m="Conv 1")
-        
+
 #         # Input: N, 16, 128, 128, 128 | output: N, 16, 128, 128, 128
 #         # skip_1 = self.conv_2(x)
 #         # self.print_layer(skip_1, m="Conv 2 - Skip")
@@ -196,7 +199,7 @@ class ConvNeXtV2Encoder(torch.nn.Module):
 #         # Input: N, 16, 64, 64, 64 | output: N, 32, 64, 64, 64
 #         skip_2 = self.conv_2(x)
 #         # self.print_layer(x, m="Conv 2")
-        
+
 #         # # Input: N, 32, 64, 64, 64 | output: N, 32, 64, 64, 64
 #         # skip_2 = self.conv_4(x)
 #         # self.print_layer(skip_2, m="Conv 4")
@@ -239,19 +242,20 @@ class ConvNeXtV2Encoder(torch.nn.Module):
 
 import kornia.augmentation as K
 
+
 class NormalizeAndRescaleWrapper(torch.nn.Module):
     def __init__(self, mean=0.0, std=1.0):
         super().__init__()
         self.normalize = K.Normalize(mean=mean, std=std)
-        
+
     def forward(self, x):
         # First normalize
         normalized = self.normalize(x)
-        
+
         # Find current min and max
         batch_min = normalized.min()
         batch_max = normalized.max()
-        
+
         # Rescale to [0,1]
         rescaled = (normalized - batch_min) / (batch_max - batch_min)
         rescaled = rescaled.squeeze()
@@ -379,6 +383,7 @@ class EncoderPath(nn.Module):
 
         return x
 
+
 # class DecoderBlock(nn.Module):
 #     def __init__(self) -> None:
 #         super(DecoderBlock, self).__init__()
@@ -399,7 +404,7 @@ class EncoderPath(nn.Module):
 #             strides=1
 #         )
 
-        
+
 #         self.conv_trans_3 = DecoderUpsampleBlock(
 #             in_channels=64,
 #             out_channels=16,
@@ -408,7 +413,7 @@ class EncoderPath(nn.Module):
 #             strides=1
 #         )
 
-        
+
 #         # self.conv_trans_4 = nn.ConvTranspose3d(
 #         #     in_channels=32,
 #         #     out_channels=8,
@@ -423,7 +428,7 @@ class EncoderPath(nn.Module):
 #             strides=1,
 #             padding="same",
 #         )
-        
+
 #         self.segmentation_head = SegmentationHead(
 #             in_channels=16,
 #             out_channels=1,  # N classes
@@ -442,7 +447,7 @@ class EncoderPath(nn.Module):
 #         # print(x.shape, skips[-1].shape)
 #         x = torch.cat([ x, skips[-1] ], dim=1)
 #         # self.print_layer(x, m="Skip - upconv cat 1")
-        
+
 #         ######## SECOND BLOCK ########
 #         x = self.conv_trans_2(x)
 #         x = torch.cat([ x, skips[-2] ], dim=1)
@@ -454,12 +459,13 @@ class EncoderPath(nn.Module):
 
 #         x = torch.cat([ x, skips[-3] ], dim=1)
 #         # self.print_layer(x, m="Skip - upconv cat 3")
-    
+
 #         # End block
 #         x = self.conv_seg_head(x)
 #         x = self.segmentation_head(x)
 #         # self.print_layer(x, m="Seg head")
 #         return x
+
 
 class DecoderBlock(nn.Module):
     def __init__(self) -> None:
@@ -540,16 +546,16 @@ class DecoderBlock(nn.Module):
         x = self.up_conv_1(x)
         # Input: N, 64, 16, 16, 16 | output: N, 64, 16, 16, 16
 
-        x = torch.cat([ x, skips[-1] ], dim=1)
-        
+        x = torch.cat([x, skips[-1]], dim=1)
+
         # x = torch.add(x, skips[-1])
         # # Input: N, 64, 16, 16, 16 | output: N, 32, 16, 16, 16
         # x = self.conv_1(x)
         # # self.print_layer(x)
-        
+
         # # Input: N, 32, 16, 16, 16 | output: N, 32, 32, 32, 32
         x = self.up_conv_2(x)
-        x = torch.cat([ x, skips[-2] ], dim=1)
+        x = torch.cat([x, skips[-2]], dim=1)
 
         # # Input: N, 32, 32, 32, 32 | output: N, 32, 32, 32, 32
         # x = torch.add(x, skips[-2])
@@ -561,7 +567,7 @@ class DecoderBlock(nn.Module):
         # # Input: N, 16, 32, 32, 32 | output: N, 16, 64, 64, 64
         x = self.up_conv_3(x)
         # # Input: N, 16, 64, 64, 64 | output: N, 16, 64, 64, 64
-        x = torch.cat([ x, skips[-3] ], dim=1)
+        x = torch.cat([x, skips[-3]], dim=1)
         x = self.conv_3(x)
 
         # x = torch.add(x, skips[-3])
@@ -593,13 +599,14 @@ def dice_coefficient(y_true, y_pred):
 def dice_loss(y_true, y_pred):
     return 1.0 - dice_coefficient(y_true, y_pred)
 
+
 def filter_nan_images(batch, y=None):
     # Get indices of valid images (no NaNs)
     valid_index = [i for i, img in enumerate(batch) if not torch.isnan(img).any()]
 
     if len(valid_index) == batch.shape[0]:
         return batch, y
-    
+
     if not valid_index:
         return None, None  # Return None if no valid images remain
 
@@ -611,6 +618,7 @@ def filter_nan_images(batch, y=None):
         valid_y = torch.stack([y[i] for i in valid_index])
 
     return valid_images, valid_y
+
 
 class Neuratt(L.LightningModule):
     def __init__(self) -> None:
@@ -643,7 +651,6 @@ class Neuratt(L.LightningModule):
         #     qkv_bias=False,
         #     save_attn=False
         # )
-        
 
         self.val_images = []
         self.n_val_images = 3
@@ -656,14 +663,14 @@ class Neuratt(L.LightningModule):
         #     gamma=2
         # )
         # DiceFocalLoss(alpha=0.25, gamma=2, smooth=1e-6)
-        #nn.BCEWithLogitsLoss()
-        #nn.functional.binary_cross_entropy()
+        # nn.BCEWithLogitsLoss()
+        # nn.functional.binary_cross_entropy()
         # DiceFocalLoss(alpha=0.25, gamma=2, smooth=1e-6)
         # FocalLoss(mode="binary", alpha=0.25, gamma=2)
         #
-        #(
+        # (
         #    nn.BCEWithLogitsLoss()
-        #)  # DiceLoss(BINARY_MODE)#, from_logits=True)
+        # )  # DiceLoss(BINARY_MODE)#, from_logits=True)
         ##nn.functional.binary_cross_entropy()
         # DiceLoss(BINARY_MODE, from_logits=True)
 
@@ -682,9 +689,9 @@ class Neuratt(L.LightningModule):
         # decoder_result = self.decoder_path(encoder_result, skip_conns)
 
         decoder_result = self.model(x)
-        
+
         return decoder_result
-        
+
     def training_step(self, batch, batch_idx):
         x, y = batch
         # x = self.__norm_batch(x)
@@ -704,15 +711,18 @@ class Neuratt(L.LightningModule):
 
         prob_mask = decoder_result.sigmoid()
         prob_mask = torch.nan_to_num(prob_mask, nan=torch.finfo(prob_mask.dtype).tiny)
-        
+
         loss = self.loss_fn(prob_mask, y)
         if torch.isnan(loss):
             print("Loss is NaN!")
             np.save("/results/problem_data.npy", x.detach().cpu().numpy())
             np.save("/results/problem_mask.npy", y.detach().cpu().numpy())
             np.save("/results/problem_pred.npy", prob_mask.detach().cpu().numpy())
-            np.save("/results/problem_bef_sigmoid.npy", decoder_result.detach().cpu().numpy())
-            
+            np.save(
+                "/results/problem_bef_sigmoid.npy",
+                decoder_result.detach().cpu().numpy(),
+            )
+
             exit()
         # else:
         #     print("Loss function")
@@ -720,9 +730,9 @@ class Neuratt(L.LightningModule):
         #     np.save("/results/no_problem_mask.npy", y.detach().cpu().numpy())
         #     np.save("/results/no_problem_pred.npy", prob_mask.detach().cpu().numpy())
         #     np.save("/results/no_problem_bef_sigmoid.npy", decoder_result.detach().cpu().numpy())
-            
+
         #     exit()
-        
+
         pred_mask = (prob_mask > 0.5).float()
 
         self.log("train/loss", loss.item())
@@ -765,16 +775,16 @@ class Neuratt(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         x, y = filter_nan_images(x, y)
-        
+
         if x is None:
             print("Skipping batch due to NaNs")
             return 0.0
         # x = self.__norm_batch(x)
-        
+
         decoder_result = self(x)
         prob_mask = decoder_result.sigmoid()
         prob_mask = torch.nan_to_num(prob_mask, nan=torch.finfo(prob_mask.dtype).tiny)
-        
+
         loss = self.loss_fn(prob_mask, y)
         self.log("val_loss", loss.item())
 
@@ -802,30 +812,38 @@ class Neuratt(L.LightningModule):
         )
 
         if len(self.val_images) < self.n_val_images:
-            
+
             self.val_images.append(
                 {
                     "images": x[-1].detach().cpu().numpy(),
                     "preds": pred_mask[-1].detach().cpu().numpy(),
-                    "labels": y[-1].detach().cpu().numpy()
+                    "labels": y[-1].detach().cpu().numpy(),
                 }
             )
-        
+
         return loss
 
     def on_validation_epoch_end(self):
         images = []
         for output in self.val_images:
-            for img, pred, label in zip(output["images"], output["preds"], output["labels"]):
+            for img, pred, label in zip(
+                output["images"], output["preds"], output["labels"]
+            ):
                 # Log input image + true mask + predicted mask
                 images.append(
                     wandb.Image(
                         img,
                         masks={
-                            "ground_truth": {"mask_data": label, "class_labels": {0: "Background", 1: "Tissue"}},
-                            "prediction": {"mask_data": pred, "class_labels": {0: "Background", 1: "Tissue"}}
+                            "ground_truth": {
+                                "mask_data": label,
+                                "class_labels": {0: "Background", 1: "Tissue"},
+                            },
+                            "prediction": {
+                                "mask_data": pred,
+                                "class_labels": {0: "Background", 1: "Tissue"},
+                            },
                         },
-                        caption="Predictions"
+                        caption="Predictions",
                     )
                 )
 
@@ -843,15 +861,11 @@ class Neuratt(L.LightningModule):
 
         dice = self.dice_score_metric(prob_mask, y)
         jacc = self.jaccard_index_metric(pred_mask, y)
-        
-        metrics = {
-            'loss': loss.item(),
-            'dice': dice.item(),
-            'jacc': jacc.item()
-        }
-        
+
+        metrics = {"loss": loss.item(), "dice": dice.item(), "jacc": jacc.item()}
+
         return (x, pred_mask, metrics)
-    
+
     def __norm_batch(self, x):
         for i in range(x.shape[0]):
             x[i] = self.norm_data(x[i])
@@ -863,15 +877,15 @@ class Neuratt(L.LightningModule):
         if batch is None:
             print("Skipping batch due to NaNs")
             return 0.0
-        
+
         batch = self.__norm_batch(batch)
         decoder_result = self(batch)
 
         prob_mask = decoder_result.sigmoid()
         prob_mask = torch.nan_to_num(prob_mask, nan=torch.finfo(prob_mask.dtype).tiny)
-        
+
         pred_mask = (prob_mask > threshold).float()
-        
+
         return pred_mask, prob_mask
 
     def configure_optimizers(self):
@@ -911,17 +925,39 @@ def check_model():
 
     out = model(x)
     trainable_params, total_params = count_params(model)
-    
+
     print(model)
 
     trainable_params_encoder, total_params_encoder = count_params(model.encoder_path)
     trainable_params_decoder, total_params_decoder = count_params(model.decoder_path)
-    
-    print("Trainable params: ", trainable_params, " total params: ", total_params, " output image: ", out.shape)
-    print("Trainable encoder params: ", trainable_params_encoder, " total params: ", total_params_encoder, " output image: ", out.shape)
-    print("Trainable decoder params: ", trainable_params_decoder, " total params: ", total_params_decoder, " output image: ", out.shape)
-    
+
+    print(
+        "Trainable params: ",
+        trainable_params,
+        " total params: ",
+        total_params,
+        " output image: ",
+        out.shape,
+    )
+    print(
+        "Trainable encoder params: ",
+        trainable_params_encoder,
+        " total params: ",
+        total_params_encoder,
+        " output image: ",
+        out.shape,
+    )
+    print(
+        "Trainable decoder params: ",
+        trainable_params_decoder,
+        " total params: ",
+        total_params_decoder,
+        " output image: ",
+        out.shape,
+    )
+
     # make_dot(out).render("neuratt", format="png")
+
 
 if __name__ == "__main__":
     check_model()

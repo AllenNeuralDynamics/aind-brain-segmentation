@@ -37,9 +37,7 @@ class ConvNeXtV2Block(nn.Module):
         self.act = nn.GELU()
         self.grn = GRN(4 * dim)
         self.pwconv2 = nn.Linear(4 * dim, dim)
-        self.drop_path = (
-            DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        )
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
         input = x
@@ -101,9 +99,7 @@ class ConvNextV2Block(torch.nn.Module):
             out_features=out_channels,
             device=device,
         )
-        self.drop_path = (
-            DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        )
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, input_feat: torch.Tensor):
         skip_con = input_feat
@@ -113,14 +109,14 @@ class ConvNextV2Block(torch.nn.Module):
         # (N, C, D, H, W) -> (N, D, H, W, C)
         # input_feat = skip_con.permute(0, 2, 3, 4, 1)
         input_feat = input_feat.permute(0, 2, 3, 4, 1)
-        
+
         input_feat = self.layer_norm(input_feat)
         input_feat = self.point_wise_conv1(input_feat)
-        
+
         input_feat = self.activation_layer(input_feat)
-        
+
         input_feat = self.grn_norm(input_feat)
-        
+
         input_feat = self.point_wise_conv2(input_feat)
 
         # Back to channels in second pos
@@ -133,7 +129,7 @@ class ConvNextV2Block(torch.nn.Module):
             input_feat = skip_con + self.drop_path(input_feat)
         else:
             input_feat = self.drop_path(input_feat)
-            
+
         return input_feat
 
 
@@ -184,9 +180,7 @@ class ConvNextV2(nn.Module):
             self.downsample_layers.append(downsample_layer)
 
         drop_path_rate = 0.0
-        dp_rates = [
-            x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))
-        ]
+        dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
         cur = 0
         for i in range(depth):
             stage = nn.Sequential(
@@ -229,9 +223,7 @@ class ConvNextV2(nn.Module):
 
 
 class ConvolutionalBlock(nn.Sequential):
-    def __init__(
-        self, in_channels, out_channels, kernel_size, strides, padding
-    ):
+    def __init__(self, in_channels, out_channels, kernel_size, strides, padding):
         conv = nn.Conv3d(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -247,9 +239,7 @@ class ConvolutionalBlock(nn.Sequential):
 
 
 class DecoderUpsampleBlock(nn.Module):
-    def __init__(
-        self, in_channels, out_channels, norm_rate, kernel_size=3, strides=1
-    ):
+    def __init__(self, in_channels, out_channels, norm_rate, kernel_size=3, strides=1):
         super(DecoderUpsampleBlock, self).__init__()
 
         self.conv = nn.Conv3d(
@@ -273,9 +263,7 @@ class DecoderUpsampleBlock(nn.Module):
 
 
 class ConnectionComponents(nn.Module):
-    def __init__(
-        self, in_channels, out_channels, norm_rate, kernel_size=3, strides=1
-    ):
+    def __init__(self, in_channels, out_channels, norm_rate, kernel_size=3, strides=1):
         super(ConnectionComponents, self).__init__()
 
         self.conv_1 = nn.Conv3d(
@@ -319,9 +307,7 @@ class ConnectionComponents(nn.Module):
 
 
 class EncoderDecoderConnections(nn.Module):
-    def __init__(
-        self, in_channels, out_channels, kernel_size=3, norm_rate=1e-4
-    ):
+    def __init__(self, in_channels, out_channels, kernel_size=3, norm_rate=1e-4):
         super(EncoderDecoderConnections, self).__init__()
 
         self.con_comp_1 = ConnectionComponents(
