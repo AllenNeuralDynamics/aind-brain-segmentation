@@ -1,9 +1,11 @@
 import logging
 import multiprocessing
 import os
+import time
 from pathlib import Path
 
 import cv2
+import dask.array as da
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -33,6 +35,82 @@ def post_process_mask(mask, threshold=0.5, min_size=100):
     mask = mask > threshold
     return mask
 
+
+def check_gpu_memory(
+    image: np.ndarray,
+    model: torch.nn.Module,
+    device: torch.device,
+    batch_size: int = 1,
+    factor: float = 2.5,
+):
+    """
+    Checks if both the image and model fit in GPU memory.
+
+    Args:
+        image (np.ndarray): The 3D image array.
+        model (torch.nn.Module): The deep learning model.
+        batch_size (int): The number of images per batch.
+
+    Raises:
+        RuntimeError: If the model and image do not fit in GPU memory.
+    """
+    # Get total and available GPU memory
+    total_mem = torch.cuda.get_device_properties(device).total_memory
+    reserved_mem = torch.cuda.memory_reserved(device)
+    allocated_mem = torch.cuda.memory_allocated(device)
+    available_mem = total_mem - max(reserved_mem, allocated_mem)
+
+    # Estimate model memory usage
+    model_size = sum(p.numel() * p.element_size() for p in model.parameters())
+
+    # Estimate image memory usage
+    image_size = image.nbytes * batch_size
+
+    # Additional overhead: activations, gradients (rough estimate: 2-3x model size)
+    overhead = model_size * factor  # Adjust multiplier if needed
+
+    # Total memory requirement
+    print(f"Image size: {image_size / (1024 ** 2)} MB")
+    print(f"Model size: {model_size / (1024 ** 2)} MB")
+    print(f"Computation overhead: {overhead / (1024 ** 2)} MB")
+
+    required_mem = model_size + image_size + overhead
+
+    # Check if it fits
+    if required_mem > available_mem:
+        raise RuntimeError(
+            f"Not enough GPU memory! Required: {required_mem / 1e6:.2f} MB, Available: {available_mem / 1e6:.2f} MB"
+        )
+
+    print(
+        f"Memory check passed ✅: Required {required_mem / 1e6:.2f} MB, Available {available_mem / 1e6:.2f} MB"
+    )
+
+
+def batched_predict(segmentation_model, slice_data, prob_threshold, batch_size):
+    if isinstance(slice_data, np.ndarray):
+        slice_data = torch.from_numpy(slice_data)
+
+    num_slices = slice_data.shape[0]
+    pred_masks, prob_masks = [], []
+
+    for i in range(0, num_slices, batch_size):
+        batch = slice_data[i : i + batch_size]
+        print(f"Processing slices [{i} - {i+batch_size}]: {batch.shape}")
+        pred_mask, prob_mask = segmentation_model.predict(
+            batch=batch, threshold=prob_threshold
+        )
+
+        pred_masks.append(pred_mask.detach().cpu().numpy())
+        prob_masks.append(prob_mask.detach().cpu().numpy())
+
+    # Concatenate results across batch dimension
+    pred_masks = np.concatenate(pred_masks, axis=0)
+    prob_masks = np.concatenate(prob_masks, axis=0)
+
+    return pred_masks, prob_masks
+
+
 def in_mem_computation(
     lazy_data,
     segmentation_model,
@@ -43,8 +121,168 @@ def in_mem_computation(
     n_workers,
     batch_size,
     super_chunksize,
+    image_height,
+    image_width,
+    prob_threshold,
+    inner_batch_size=4,
 ):
-    pass
+
+    # Creating outputs
+    output_intermediate_seg = zarr.open(
+        output_seg_path,
+        "w",
+        shape=(
+            1,
+            1,
+        )
+        + lazy_data.shape[-3:],
+        chunks=(
+            1,
+            1,
+        )
+        + (128, 128, 128),
+        dtype=np.uint8,
+    )
+
+    output_intermediate_prob = zarr.open(
+        output_prob_path,
+        "w",
+        shape=(
+            1,
+            1,
+        )
+        + lazy_data.shape[-3:],
+        chunks=(
+            1,
+            1,
+        )
+        + (128, 128, 128),
+        dtype=np.float16,
+    )
+
+    output_raw_data = None
+
+    # Saving raw data if needed
+    if output_data_path is not None:
+        output_raw_data = zarr.open(
+            output_data_path,
+            "w",
+            shape=(
+                1,
+                1,
+            )
+            + lazy_data.shape[-3:],
+            chunks=(
+                1,
+                1,
+            )
+            + (128, 128, 128),
+            dtype=np.uint16,
+        )
+
+    shape = lazy_data.shape[-3:]
+    cuda_device = torch.device(0)
+    segmentation_model.half()
+    segmentation_model.eval()
+    segmentation_model.to(cuda_device)
+
+    orig_shape = lazy_data.shape[-2:]
+
+    total_mem_gpu = torch.cuda.get_device_properties(cuda_device).total_memory
+
+    # Moving data to GPU if it fits
+    print(f"Memory allocated in GPU: {torch.cuda.memory_allocated() / (1024 ** 2)} MB")
+    print(f"Memory reserved in GPU: {torch.cuda.memory_reserved() / (1024 ** 2)} MB")
+    print(f"Total memory in GPU: {total_mem_gpu / (1024 ** 2)} MB")
+
+    lazy_data = da.squeeze(lazy_data)
+    in_mem_data = lazy_data.compute()
+    in_mem_data = np.expand_dims(in_mem_data, axis=1)
+
+    check_gpu_memory(
+        image=in_mem_data,
+        model=segmentation_model,
+        device=cuda_device,
+        batch_size=1,
+        factor=2.5,
+    )
+
+    gpu_mem_data = torch.from_numpy(in_mem_data).half().to(cuda_device)
+
+    slice_data = torch.zeros(
+        (gpu_mem_data.shape[0], 1, image_height, image_width),
+        device=cuda_device,
+        dtype=gpu_mem_data.dtype,
+    )
+
+    for i in range(slice_data.shape[0]):
+        slice_data[i] = F.interpolate(
+            gpu_mem_data[i][None, ...],
+            size=(image_height, image_width),
+            mode="bilinear",
+            align_corners=False,
+        )[0]
+
+    # Removing from GPU, keeping resized
+    del gpu_mem_data
+
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
+
+    print(f"Running segmentation in volume of shape: {slice_data.shape}")
+    # pred_mask, prob_mask = segmentation_model.predict(
+    #     batch=slice_data, threshold=prob_threshold
+    # )
+    pred_mask, prob_mask = batched_predict(
+        segmentation_model, slice_data, prob_threshold, inner_batch_size
+    )
+    pred_mask = np.squeeze(pred_mask).astype(np.float32)
+    prob_mask = np.squeeze(prob_mask)
+
+    print(
+        f"After running segmentation, pred mask: {pred_mask.shape} - Prob mask: {prob_mask.shape}"
+    )
+
+    if np.isnan(prob_mask).any() or np.isnan(pred_mask).any():
+        raise ValueError("NaNs during prediction!")
+
+    if np.isinf(prob_mask).any() or np.isinf(pred_mask).any():
+        raise ValueError("INF during prediction!")
+
+    pred_mask_resampled = np.zeros((pred_mask.shape[0],) + orig_shape, dtype=np.uint8)
+    prob_mask_resampled = np.zeros((prob_mask.shape[0],) + orig_shape, dtype=np.float32)
+
+    # **Resize with OpenCV (Faster than skimage)**
+    for i in range(pred_mask.shape[0]):
+        if prob_mask[i] is None or prob_mask[i].size == 0:
+            raise ValueError(
+                f"Invalid input at index {i}: prob_mask[i] is None or empty."
+            )
+
+        if pred_mask[i] is None or pred_mask[i].size == 0:
+            raise ValueError(
+                f"Invalid input at index {i}: prob_mask[i] is None or empty."
+            )
+
+        pred_mask_resampled[i] = cv2.resize(
+            pred_mask[i], orig_shape[::-1], interpolation=cv2.INTER_NEAREST
+        )
+        prob_mask_resampled[i] = cv2.resize(
+            prob_mask[i], orig_shape[::-1], interpolation=cv2.INTER_NEAREST
+        )
+
+    print(
+        f"After resizing segmentation, pred mask: {pred_mask.shape} - Prob mask: {prob_mask.shape}"
+    )
+
+    print("Writing outputs!")
+    output_intermediate_seg[:] = pred_mask_resampled[None, None, ...]
+    output_intermediate_prob[:] = prob_mask_resampled[None, None, ...]
+
+    if output_data_path is not None:
+        in_mem_data = np.squeeze(in_mem_data)
+        output_raw_data[:] = in_mem_data[None, None, ...]
+
 
 def lazy_computation(
     lazy_data,
@@ -56,6 +294,9 @@ def lazy_computation(
     n_workers,
     batch_size,
     super_chunksize,
+    image_height,
+    image_width,
+    prob_threshold,
 ):
     # Lazy computation code
     device = None
@@ -250,6 +491,7 @@ def lazy_computation(
         if output_data_path is not None:
             output_raw_data[unpadded_global_slice] = slice_data_orig[None, None, ...]
 
+
 def run_brain_segmentation(
     image_path,
     model_path,
@@ -262,7 +504,7 @@ def run_brain_segmentation(
     image_height=1024,
     image_width=1024,
     prob_threshold=0.7,
-    run_in_mem=True
+    run_in_mem=True,
 ):
     output_folder = Path(output_folder)
 
@@ -293,6 +535,7 @@ def run_brain_segmentation(
         .create(data_path=str(image_path), parse_path=False, multiscale=scale)
         .as_dask_array()
     )
+    # lazy_data = da.squeeze(lazy_data)
 
     if run_in_mem:
         in_mem_computation(
@@ -303,8 +546,11 @@ def run_brain_segmentation(
             output_data_path,
             target_size_mb,
             n_workers,
-            batch_size,
+            1,
             super_chunksize,
+            image_height=image_height,
+            image_width=image_width,
+            prob_threshold=prob_threshold,
         )
 
     else:
@@ -319,6 +565,9 @@ def run_brain_segmentation(
             n_workers,
             batch_size,
             super_chunksize,
+            image_height=image_height,
+            image_width=image_width,
+            prob_threshold=prob_threshold,
         )
 
     print("Segmentation finished!")
@@ -340,7 +589,7 @@ def main():
         n_workers=0,
         super_chunksize=None,
         scale=3,
-        scratch_folder=None,
+        scratch_folder=scratch_folder,
         image_height=1024,
         image_width=1024,
         prob_threshold=0.7,
