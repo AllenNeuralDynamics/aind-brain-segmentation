@@ -33,3 +33,5 @@ RUN pip install --no-cache \
     kornia \
     boto3 \
     opencv-python
+
+RUN conda install conda-forge::awscli

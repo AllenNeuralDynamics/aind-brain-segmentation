@@ -586,11 +586,16 @@ def run_multiple_datasets():
     scratch_folder = Path(os.path.abspath("../scratch"))
 
     image_paths = [
-        "s3://aind-open-data/SmartSPIM_774928_2024-12-17_17-41-54_stitched_2025-01-11_01-02-44/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
-        "s3://aind-open-data/SmartSPIM_764220_2025-01-30_11-15-58_stitched_2025-03-06_10-04-25/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
-        "s3://aind-open-data/SmartSPIM_782499_2025-03-06_00-01-19_stitched_2025-03-07_05-11-31/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
-        "s3://aind-open-data/SmartSPIM_771602_2025-03-05_22-02-27_stitched_2025-03-07_08-59-06/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
-        "s3://aind-open-data/SmartSPIM_714778_2024-03-12_22-40-29_stitched_2024-03-14_06-09-38/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr"
+        # "s3://aind-open-data/SmartSPIM_774928_2024-12-17_17-41-54_stitched_2025-01-11_01-02-44/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+        # "s3://aind-open-data/SmartSPIM_764220_2025-01-30_11-15-58_stitched_2025-03-06_10-04-25/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
+        # "s3://aind-open-data/SmartSPIM_782499_2025-03-06_00-01-19_stitched_2025-03-07_05-11-31/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
+        # "s3://aind-open-data/SmartSPIM_771602_2025-03-05_22-02-27_stitched_2025-03-07_08-59-06/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+        # "s3://aind-open-data/SmartSPIM_714778_2024-03-12_22-40-29_stitched_2024-03-14_06-09-38/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
+        "s3://aind-open-data/SmartSPIM_756457_2024-11-21_19-21-52_stitched_2024-11-23_03-00-56/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+        "s3://aind-open-data/SmartSPIM_754077_2024-11-22_00-05-49_stitched_2024-11-26_19-34-32/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+        "s3://aind-open-data/SmartSPIM_758333_2024-11-21_14-52-06_stitched_2024-11-22_21-41-39/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+        "s3://aind-open-data/SmartSPIM_768498_2025-01-27_15-17-42_stitched_2025-01-29_09-09-04/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
+        "s3://aind-open-data/SmartSPIM_768499_2025-01-27_18-45-19_stitched_2025-01-29_08-19-35/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr"
     ]
 
     model_path = data_folder.joinpath("best_model_097_2d.ckpt")
