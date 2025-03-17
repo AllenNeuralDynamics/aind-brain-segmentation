@@ -1,29 +1,48 @@
+"""
+Large-scale prediction of segmentation masks.
+"""
+
 import logging
 import multiprocessing
 import os
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import dask.array as da
 import numpy as np
 import torch
 import torch.nn.functional as F
-# import cupy as cp
-import torchvision.transforms.functional as TF
 import zarr
 from aind_brain_segmentation.model.network import Neuratt
 from aind_large_scale_prediction.generator.dataset import create_data_loader
 from aind_large_scale_prediction.generator.utils import (
-    concatenate_lazy_data, recover_global_position, unpad_global_coords)
+    recover_global_position, unpad_global_coords)
 from aind_large_scale_prediction.io import ImageReaderFactory
 from scipy.ndimage import binary_closing, binary_fill_holes, gaussian_filter
-from skimage.morphology import ball, remove_small_objects
-from skimage.transform import resize as ski_resize
+from skimage.morphology import remove_small_objects
 
 
-def post_process_mask(mask, threshold=0.5, min_size=100):
+def post_process_mask(
+    mask: np.ndarray, threshold: Optional[float] = 0.5, min_size: Optional[int] = 100
+):
+    """
+    Post-process segmentation mask.
+
+    Parameters
+    ----------
+    mask: np.ndarray
+        Mask to be postprocessed.
+
+    threshold: Optional[float]
+        Threshold for probabilities.
+
+    min_size: Optional[int]
+        Minimum size for removing small objects
+
+    """
     mask = binary_fill_holes(mask)
     mask = remove_small_objects(mask, min_size=min_size)
 
@@ -40,16 +59,30 @@ def check_gpu_memory(
     image: np.ndarray,
     model: torch.nn.Module,
     device: torch.device,
-    batch_size: int = 1,
-    factor: float = 2.5,
+    batch_size: Optional[int] = 1,
+    factor: Optional[float] = 2.5,
 ):
     """
     Checks if both the image and model fit in GPU memory.
 
-    Args:
-        image (np.ndarray): The 3D image array.
-        model (torch.nn.Module): The deep learning model.
-        batch_size (int): The number of images per batch.
+    Parameters
+    ----------
+    image: np.ndarray
+        The 3D image array.
+
+    model: torch.nn.Module
+        The deep learning model.
+
+    device: torch.device
+        Device to use in the prediction
+
+    batch_size: Optional[int]
+        The number of images per batch.
+        Default: 1
+
+    factor: Optional[float]
+        Factor used for memory estimation as
+        an overhead. Default: 2.5
 
     Raises:
         RuntimeError: If the model and image do not fit in GPU memory.
@@ -87,7 +120,30 @@ def check_gpu_memory(
     )
 
 
-def batched_predict(segmentation_model, slice_data, prob_threshold, batch_size):
+def batched_predict(
+    segmentation_model: torch.nn.Module,
+    slice_data: np.ndarray,
+    prob_threshold: float,
+    batch_size: int,
+):
+    """
+    Batched prediction with the segmentation model.
+
+    Parameters
+    ----------
+    segmentation_model: torch.nn.Module
+        Segmentation model
+
+    slice_data: np.ndarray
+        Slice data to predict the mask
+
+    prob_threshold: float
+        Threshold to cut the probabilities.
+
+    batch_size: int
+        Batch size
+
+    """
     if isinstance(slice_data, np.ndarray):
         slice_data = torch.from_numpy(slice_data)
 
@@ -117,10 +173,6 @@ def in_mem_computation(
     output_seg_path,
     output_prob_path,
     output_data_path,
-    target_size_mb,
-    n_workers,
-    batch_size,
-    super_chunksize,
     image_height,
     image_width,
     prob_threshold,
@@ -291,18 +343,80 @@ def in_mem_computation(
 
 def lazy_computation(
     lazy_data,
-    segmentation_model,
-    output_seg_path,
-    output_prob_path,
-    output_data_path,
-    target_size_mb,
-    n_workers,
-    batch_size,
-    super_chunksize,
-    image_height,
-    image_width,
-    prob_threshold,
+    segmentation_model: torch.nn.Module,
+    output_seg_path: str,
+    output_prob_path: str,
+    output_data_path: str,
+    target_size_mb: int,
+    n_workers: int,
+    batch_size: int,
+    super_chunksize: int,
+    image_height: int,
+    image_width: int,
+    prob_threshold: float,
 ):
+    """
+    Runs whole brain segmentation using 2D planes
+    of the data. The orientation of the brain it
+    is agnostic since it was trained from multiple
+    planes. This is by using lazy data and computation.
+
+    Parameters
+    ----------
+    lazy_data: dask.Array
+        Lazy data
+
+    segmentation_model: torch.nn.Module
+        Segmentation model to use for prediction
+
+    output_seg_path: str
+        Path where we want to write the zarr for the
+        segmentation mask.
+
+    output_prob_path: str
+        Path where we want to write the zarr for the
+        probabilities.
+
+    output_data_path: str
+        Path where we want to write the zarr for the
+        raw data.
+
+    n_workers: int
+        Number of workers that will be pulling data
+        with pytorch dataloaders.
+
+    batch_size: int
+        Batch size used during prediction.
+
+    super_chunksize: int
+        Superchunksize for large-scale predictions for
+        Datasets that are not able to fit in memory.
+        This is not allowed by default since for the
+        model we need to resize the data.
+        Default: None
+
+    scale: int
+        Scale from which we will pull the image data in
+        SmartSPIM datasets.
+
+    scratch_folder: str
+        Scratch folder. If a scratch folder is provided,
+        the raw data will be written there for analysis.
+        Default: None
+
+    image_height: int
+        Image height that will be used for resizing. This size
+        was used for the model during training.
+
+    image_width: int
+        Image width that will be used for resizing. This size
+        was used for the model during training.
+
+    prob_threshold: float
+        Probability threshold.
+
+    """
+
     # Lazy computation code
     device = None
 
@@ -501,19 +615,80 @@ def lazy_computation(
 
 
 def run_brain_segmentation(
-    image_path,
-    model_path,
-    output_folder,
-    target_size_mb=2048,
-    n_workers=0,
-    super_chunksize=None,
-    scale=3,
-    scratch_folder=None,
-    image_height=1024,
-    image_width=1024,
-    prob_threshold=0.7,
-    run_in_mem=True,
+    image_path: str,
+    model_path: str,
+    output_folder: str,
+    target_size_mb: Optional[int] = 2048,
+    n_workers: Optional[int] = 0,
+    super_chunksize: Optional[int] = None,
+    scale: Optional[int] = 3,
+    scratch_folder: Optional[str] = None,
+    image_height: Optional[int] = 1024,
+    image_width: Optional[int] = 1024,
+    prob_threshold: Optional[float] = 0.7,
+    batch_size: Optional[int] = 1,
+    run_in_mem: Optional[bool] = True,
 ):
+    """
+    Runs whole brain segmentation using 2D planes
+    of the data. The orientation of the brain it
+    is agnostic since it was trained from multiple
+    planes.
+
+    Parameters
+    ----------
+    image_path: str
+        Path where the data is stored. It could be
+        a local path or a s3:// path.
+
+    model_path: str
+        Path where the model is stored.
+
+    output_folder: str
+        Path where we want to write the results.
+
+    n_workers: Optional[int]
+        Number of workers that will be pulling data
+        with pytorch dataloaders.
+
+    super_chunksize: Optional[int]
+        Superchunksize for large-scale predictions for
+        Datasets that are not able to fit in memory.
+        This is not allowed by default since for the
+        model we need to resize the data.
+        Default: None
+
+    scale: Optional[int]
+        Scale from which we will pull the image data in
+        SmartSPIM datasets.
+
+    scratch_folder: str
+        Scratch folder. If a scratch folder is provided,
+        the raw data will be written there for analysis.
+        Default: None
+
+    image_height: Optional[int]
+        Image height that will be used for resizing. This size
+        was used for the model during training.
+        Default: 1024
+
+    image_width: Optional[int]
+        Image width that will be used for resizing. This size
+        was used for the model during training.
+        Default: 1024
+
+    prob_threshold: Optional[float]
+        Probability threshold.
+        Default: 0.7
+
+    batch_size: Optional[int]
+        Batch size used during prediction.
+
+    run_in_mem: Optional[bool]
+        Boolean that dictates if the algorithm runs directly in
+        memory. False if dask needs to be used.
+        Default: True
+    """
     output_folder = Path(output_folder)
 
     if not output_folder.exists():
@@ -552,10 +727,6 @@ def run_brain_segmentation(
             output_seg_path,
             output_prob_path,
             output_data_path,
-            target_size_mb,
-            n_workers,
-            1,
-            super_chunksize,
             image_height=image_height,
             image_width=image_width,
             prob_threshold=prob_threshold,
@@ -571,20 +742,23 @@ def run_brain_segmentation(
             output_data_path,
             target_size_mb,
             n_workers,
-            batch_size,
             super_chunksize,
             image_height=image_height,
             image_width=image_width,
             prob_threshold=prob_threshold,
+            batch_size=batch_size,
         )
 
     print("Segmentation finished!")
 
 
 def run_multiple_datasets():
+    """
+    Runs segmentation in multiple datasets
+    """
     data_folder = Path(os.path.abspath("../data"))
     results_folder = Path(os.path.abspath("../results"))
-    scratch_folder = Path(os.path.abspath("../scratch"))
+    # scratch_folder = Path(os.path.abspath("../scratch"))
 
     image_paths = [
         # "s3://aind-open-data/SmartSPIM_774928_2024-12-17_17-41-54_stitched_2025-01-11_01-02-44/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
@@ -630,6 +804,9 @@ def run_multiple_datasets():
 
 
 def main():
+    """
+    Main function
+    """
     data_folder = Path(os.path.abspath("../data"))
     results_folder = Path(os.path.abspath("../results"))
     scratch_folder = Path(os.path.abspath("../scratch"))
