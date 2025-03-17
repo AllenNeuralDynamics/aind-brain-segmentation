@@ -15,23 +15,23 @@ RUN conda install -y \
     && conda clean -ya
 
 RUN pip install --no-cache \
-    tifffile \
-    patchify \
-    scipy \
-    scikit-image \
-    torchio \
-    numpy \
-    lightning \
-    torchmetrics \
-    segmentation_models_pytorch \
-    wandb \
+    tifffile==2025.2.18 \
+    patchify==0.2.3 \
+    scipy==1.15.2 \
+    scikit-image==0.25.2 \
+    torchio==0.20.4 \
+    numpy==1.26.4 \
+    lightning==2.5.0.post0 \
+    torchmetrics==1.6.2 \
+    segmentation_models_pytorch==0.4.0 \
+    wandb==0.19.8 \
     torchvision==0.18.1 \
-    natsort \
+    natsort==8.4.0 \
     dask[distributed]==2024.4.1 \
     git+https://github.com/AllenNeuralDynamics/aind-large-scale-prediction.git@unpinned-versions \
-    monai[all] \
-    kornia \
-    boto3 \
-    opencv-python
+    monai[all]==1.4.0 \
+    kornia==0.8.0 \
+    boto3==1.37.9 \
+    opencv-python==4.11.0
 
 RUN conda install conda-forge::awscli
