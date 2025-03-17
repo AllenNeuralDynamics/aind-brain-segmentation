@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"attached_datasets": [
+		{
+			"id": "0394cf02-86c3-43f7-af79-a0ce20939e68",
+			"mount": "smartspim_tissue_segmentation"
+		}
+	]
+}
