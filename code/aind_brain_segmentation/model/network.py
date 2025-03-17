@@ -12,12 +12,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as T
+import wandb
 from segmentation_models_pytorch.losses import BINARY_MODE, DiceLoss, FocalLoss
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 # from torchviz import make_dot
 from torchmetrics import Accuracy, F1Score, JaccardIndex
-
-import wandb
 
 from .layers.blocks import (ConvNextV2, ConvNextV2Block, ConvolutionalBlock,
                             DecoderUpsampleBlock, EncoderDecoderConnections,

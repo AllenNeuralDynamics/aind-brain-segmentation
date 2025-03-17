@@ -1,7 +1,10 @@
-""" top level run script """
+"""top level run script"""
+
 
 def run():
-    """ basic run function """
+    """basic run function"""
     pass
 
-if __name__ == "__main__": run()
+
+if __name__ == "__main__":
+    run()

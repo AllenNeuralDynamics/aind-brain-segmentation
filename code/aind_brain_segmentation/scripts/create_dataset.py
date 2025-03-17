@@ -1,8 +1,13 @@
+"""
+Script to create a dataset for training experiments
+"""
+
 import multiprocessing
 import os
 import re
 import warnings
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import numpy as np
 import tifffile as tif
@@ -61,6 +66,13 @@ def main(
     crop_to_mask=False,
     volume_blocks=True,
 ):
+    """
+    Main function to create the dataset.
+
+    Parameters
+    ----------
+    dataset_path:
+    """
     dataset_path = Path(dataset_path)
     masks_dataset_path = Path(masks_dataset_path)
     regex_id = r"_(\d{6})_"
@@ -395,12 +407,40 @@ def constrat_enhancement(normalized_image, k_factor=8, clip_limit=0.03):
     return equalized_image
 
 
-def max_ignore_inf(arr):
+def max_ignore_inf(arr: np.ndarray) -> np.ndarray:
+    """
+    Ignores infinites and nans in an array
+    and computes the maximum value
+
+    Parameters
+    ----------
+    arr: np.ndarray
+        Numpy array to get the non nans/infs
+
+    Returns
+    -------
+    float
+        Maximum value of the array
+
+    """
     finite_vals = arr[np.isfinite(arr) & ~np.isnan(arr)]  # Mask out infinities
     return np.max(finite_vals) if finite_vals.size > 0 else None
 
 
-def fix_nans_and_infs(arr):
+def fix_nans_and_infs(arr: np.ndarray) -> np.ndarray:
+    """
+    Fixes nans and infinite values in arrays
+
+    Parameters
+    ----------
+    arr: np.ndarray
+        Array to fix
+
+    Returns
+    -------
+    np.array
+        Fixed array
+    """
     min_val = np.nanmin(arr)
     max_val = max_ignore_inf(arr)
 
@@ -421,6 +461,48 @@ def process_slice(
     image_height,
     channel_name,
 ):
+    """
+    Patches the image and mask data in slices by
+    splitting the work among multiple CPUs to speed
+    up the dataset creation process.
+
+    Parameters
+    ----------
+    i: int
+        Slice id
+
+    axis: int
+        Axis from the 3D data
+
+    data_block: np.ndarray
+        3-dimensional array to patch.
+
+    mask_block: np.ndarray
+        3-dimensional array to patch.
+
+    output_images: str
+        Path where the images from data block will be
+        saved.
+
+    output_masks: str
+        Path where the masks from data block will be
+        saved.
+
+    smartspim_id: str
+        SmartSPIM brain ID
+
+    image_width: int
+        Output image width. The image will be resized
+        to this width.
+
+    image_height: int
+        Output image height. The image will be resized
+        to this height.
+
+    channel_name: str
+        Channel name these blocks of data belong to.
+
+    """
     """Process a single slice and save the result."""
     if axis == 0:
         slice_mask = mask_block[i, :, :]
@@ -468,21 +550,85 @@ def process_slice(
 
 
 def patch_image_in_slices(
-    data_block,
-    mask_block,
-    channel_name,
-    output_images,
-    output_masks,
-    smartspim_id,
-    image_width=1024,
-    image_height=1024,
-    pmin=1,
-    pmax=99,
-    int_threshold=40,
-    apply_percentile_norm=False,
-    clip_int=True,
-    num_workers=multiprocessing.cpu_count(),
+    data_block: np.ndarray,
+    mask_block: np.ndarray,
+    channel_name: str,
+    output_images: str,
+    output_masks: str,
+    smartspim_id: str,
+    image_width: Optional[bool] = 1024,
+    image_height: Optional[bool] = 1024,
+    pmin: Optional[int] = 1,
+    pmax: Optional[float] = 99,
+    int_threshold: Optional[int] = 40,
+    apply_percentile_norm: Optional[bool] = False,
+    clip_int: Optional[bool] = True,
+    num_workers: Optional[int] = multiprocessing.cpu_count(),
 ):
+    """
+    Patches the image and mask data in slices by
+    splitting the work among multiple CPUs to speed
+    up the dataset creation process.
+
+    Parameters
+    ----------
+    data_block: np.ndarray
+        3-dimensional array to patch.
+
+    mask_block: np.ndarray
+        3-dimensional array to patch.
+
+    channel_name: str
+        Channel name these blocks of data belong to.
+
+    output_images: str
+        Path where the images from data block will be
+        saved.
+
+    output_masks: str
+        Path where the masks from data block will be
+        saved.
+
+    smartspim_id: str
+        SmartSPIM brain ID
+
+    image_width: Optional[int]
+        Output image width. The image will be resized
+        to this width. Default: 1024
+
+    image_height: Optional[int]
+        Output image height. The image will be resized
+        to this height. Default: 1024
+
+    pmin: Optional[float]
+        Minimum percentile value.
+        Default: 1.0
+
+    pmax: Optional[float]
+        Minimum percentile value.
+        Default: 99.0
+
+    int_threshold: Optional[int]
+        Intensity threshold from where everything is considered
+        as signal.
+        Default: 40
+
+    apply_percentile_norm: Optional[bool]
+        If true, percentile normalization is applied with the pmin
+        and pmax value. Useful if we have images from different
+        distributions (microscopes) and experiments (out of distribution
+        hight intensity features).
+        Default: False
+
+    clip_int: Optional[bool]
+        Clips the intensities by using the int_threshold parameter.
+        Default: False
+
+    num_workers: Optional[int]
+        Number of workers that will be used in the generation of the dataset.
+        Default: multiprocessing.cpu_count()
+
+    """
     print("input shapes ", data_block.shape, mask_block.shape)
     output_images = Path(output_images)
     output_masks = Path(output_masks)
@@ -523,115 +669,6 @@ def patch_image_in_slices(
     # Use multiprocessing pool to parallelize
     with multiprocessing.Pool(processes=num_workers) as pool:
         pool.starmap(process_slice, tasks)
-
-
-def patch_image_in_slices_2(
-    data_block,
-    mask_block,
-    output_images,
-    output_masks,
-    smartspim_id,
-    image_width=1024,
-    image_height=1024,
-    pmin=1,
-    pmax=99,
-    int_threshold=40,
-    apply_percentile_norm=False,
-    clip_int=True,
-):
-    print("input shapes ", data_block.shape, mask_block.shape)
-    output_images = Path(output_images)
-    output_masks = Path(output_masks)
-
-    # patch_size = 64
-    # padding_needed = [(patch_size - (dim % patch_size)) % patch_size for dim in data_block.shape]
-    # padding = [(p // 2, p - (p // 2)) for p in padding_needed]
-    # padded_data_block = np.pad(data_block, padding, mode='constant', constant_values=0)
-    # padded_mask_block = np.pad(mask_block, padding, mode='constant', constant_values=0)
-
-    if clip_int:
-        print("Applying clipping")
-        indices = np.where(data_block <= int_threshold)
-        padded_data_block[indices] = 0
-
-    if apply_percentile_norm:
-        print("Applying percentile norm")
-        # print("Min max ", padded_data_block.min(), padded_data_block.max())
-
-        padded_data_block = percentile_normalization(
-            data=data_block, percentiles=(pmin, pmax), clip=False
-        )
-
-    for axis in range(3):
-        n_slices = data_block.shape[0]
-        print(f"Processing {axis} with {n_slices} slices for {smartspim_id}")
-        for i in range(n_slices):
-
-            slice_mask = None
-            slice_data = None
-
-            if axis == 0:
-                slice_mask = mask_block[i, :, :]
-                slice_data = data_block[i, :, :]
-
-            elif axis == 1:
-                slice_mask = mask_block[:, i, :]
-                slice_data = data_block[:, i, :]
-
-            elif axis == 2:
-                slice_mask = mask_block[:, :, i]
-                slice_data = data_block[:, :, i]
-
-            max_id = slice_mask.max()
-            max_data_block = slice_data.max()
-
-            if max_id and max_data_block:
-                # print(f"Processing slice: {i} - counter: {saved_slices}")
-                slice_data_resized = ski_resize(
-                    slice_data,
-                    (image_height, image_width),
-                    order=4,
-                    preserve_range=True,
-                )
-                slice_mask_resized = ski_resize(
-                    slice_mask,
-                    (image_height, image_width),
-                    order=0,
-                    preserve_range=True,
-                )
-
-                slice_data_resized = fix_nans_and_infs(slice_data_resized)
-                slice_mask_resized = fix_nans_and_infs(slice_mask_resized)
-
-                if (
-                    np.isnan(slice_data_resized).any()
-                    or np.isinf(slice_data_resized).any()
-                ):
-                    print(
-                        f"Problem processing: {smartspim_id}_image_slice_{i}_ax_{axis}"
-                    )
-
-                if (
-                    np.isnan(slice_mask_resized).any()
-                    or np.isinf(slice_mask_resized).any()
-                ):
-                    print(
-                        f"Problem processing: {smartspim_id}_mask_slice_{i}_ax_{axis}"
-                    )
-
-                output_image_slice = output_images.joinpath(
-                    f"{smartspim_id}_image_slice_{i}_ax_{axis}.tif"
-                )
-                output_mask_slice = output_masks.joinpath(
-                    f"{smartspim_id}_mask_slice_{i}_ax_{axis}.tif"
-                )
-
-                io.imsave(output_image_slice, slice_data_resized.astype(np.float16))
-                io.imsave(output_mask_slice, slice_mask_resized.astype(np.uint8))
-
-            else:
-                # print(f"Ignoring slice {i} - Max id: {max_id}")
-                pass
 
 
 if __name__ == "__main__":

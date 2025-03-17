@@ -19,16 +19,15 @@ import numpy as np
 # from sklearn.model_selection import KFold
 import torch
 import torchio as tio
+import wandb
+from dataloader import ImageMaskDataset
 from kornia.constants import Resample
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
+from model.network import Neuratt
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
 from torchvision import transforms
-
-import wandb
-from dataloader import ImageMaskDataset
-from model.network import Neuratt
 
 torch.backends.cudnn.benchmark = True
 warnings.filterwarnings("ignore")
