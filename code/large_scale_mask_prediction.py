@@ -330,7 +330,7 @@ def in_mem_computation(
         )
 
     print(
-        f"After resizing segmentation, pred mask: {pred_mask.shape} - Prob mask: {prob_mask.shape}"
+        f"After resizing segmentation, pred mask: {pred_mask_resampled.shape} - Prob mask: {prob_mask_resampled.shape}"
     )
 
     print("Writing outputs!")
