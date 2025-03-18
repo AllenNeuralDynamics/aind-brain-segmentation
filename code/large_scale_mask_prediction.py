@@ -250,7 +250,7 @@ def in_mem_computation(
 
     lazy_data = da.squeeze(lazy_data)
     in_mem_data = lazy_data.compute()
-    in_mem_data = np.expand_dims(in_mem_data, axis=1)
+    in_mem_data = np.expand_dims(in_mem_data, axis=1).astype(np.float32)
 
     check_gpu_memory(
         image=in_mem_data,
