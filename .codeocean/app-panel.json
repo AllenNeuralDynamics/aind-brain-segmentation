@@ -50,6 +50,16 @@
 			"type": "text",
 			"value_type": "string",
 			"default_value": "3"
+		},
+		{
+			"id": "pZVeAiW9uzWbP22V",
+			"name": "scratch_folder",
+			"param_name": "scratch_folder",
+			"description": "Scratch folder. If provided, the raw data will be written there.",
+			"help_text": "Scratch folder. If provided, the raw data will be written there.",
+			"type": "text",
+			"value_type": "string",
+			"default_value": "../scratch"
 		}
 	]
 }
