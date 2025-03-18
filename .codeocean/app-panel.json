@@ -1,0 +1,31 @@
+{
+	"version": 1,
+	"parameters": [
+		{
+			"id": "Gv5R7QEYBSvYRgYc",
+			"name": "image_path",
+			"description": "Local or S3 path where the SmartSPIM dataset is located",
+			"help_text": "You can point to the data folder or the s3 path. It needs to point to the OMEZarr path. E.g., s3://aind-open-data/SmartSPIM_756457_2024-11-21_19-21-52_stitched_2024-11-23_03-00-56/image_tile_fusing/OMEZarr/Ex_639_Em_667.zarr",
+			"type": "text",
+			"value_type": "string",
+			"required": true
+		},
+		{
+			"id": "SR2X4Bo3Lzc2xqQE",
+			"name": "model_path",
+			"description": "Path to the model that will be used",
+			"help_text": "Path to the segmentation model that will be used",
+			"type": "text",
+			"value_type": "string",
+			"default_value": "../data/smartspim_tissue_segmentation/smartspim_tissue_segmentation.ckpt"
+		},
+		{
+			"id": "2KkMgMMtutdCUafK",
+			"name": "prob_threshold",
+			"description": "Threshold that will be used to cut the probabilities and generate the mask.",
+			"type": "text",
+			"value_type": "string",
+			"default_value": "0.7"
+		}
+	]
+}
