@@ -2,6 +2,7 @@
 Large-scale prediction of segmentation masks.
 """
 
+import argparse
 import logging
 import multiprocessing
 import os
@@ -9,7 +10,6 @@ import re
 import time
 from pathlib import Path
 from typing import Optional
-import argparse
 
 import cv2
 import dask.array as da
@@ -17,13 +17,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import zarr
-from aind_brain_segmentation.model.network import Neuratt
 from aind_large_scale_prediction.generator.dataset import create_data_loader
 from aind_large_scale_prediction.generator.utils import (
     recover_global_position, unpad_global_coords)
 from aind_large_scale_prediction.io import ImageReaderFactory
+from safetensors.torch import load_file
 from scipy.ndimage import binary_closing, binary_fill_holes, gaussian_filter
 from skimage.morphology import remove_small_objects
+
+from aind_brain_segmentation.model.network import Neuratt
 
 
 def post_process_mask(
@@ -702,7 +704,23 @@ def run_brain_segmentation(
 
     if model_path.exists():
         print(f"Loading path from {model_path}")
-        segmentation_model = Neuratt.load_from_checkpoint(str(model_path))
+        model_suffix = model_path.suffix
+
+        if model_suffix == ".safetensors":
+            state_dict = load_file(model_path)
+            segmentation_model = Neuratt()
+            segmentation_model.load_state_dict(state_dict)
+
+        elif model_suffix == ".ckpt":
+            segmentation_model = Neuratt.load_from_checkpoint(str(model_path))
+
+        else:
+            msg = (
+                "Accepted model extensions are .ckpt and .safetensors,"
+                f" Provided: {model_suffix}"
+            )
+            raise ValueError(msg)
+
     else:
         raise ValueError(f"Please, provide a valid model path")
 
@@ -774,7 +792,9 @@ def run_multiple_datasets():
         "s3://aind-open-data/SmartSPIM_768499_2025-01-27_18-45-19_stitched_2025-01-29_08-19-35/image_tile_fusing/OMEZarr/Ex_639_Em_680.zarr",
     ]
 
-    model_path = data_folder.joinpath("smartspim_tissue_segmentation/smartspim_tissue_segmentation.ckpt")
+    model_path = data_folder.joinpath(
+        "smartspim_tissue_segmentation/smartspim_tissue_segmentation.ckpt"
+    )
 
     for image_path in image_paths:
         match = re.search(r"(SmartSPIM_\d+)", image_path)
@@ -811,17 +831,40 @@ def main():
 
     parser = argparse.ArgumentParser(description="Run brain segmentation.")
 
-    parser.add_argument("--image_path", type=str, required=True, help="Path to the input image.")
-    parser.add_argument("--model_path", type=str, default="../data/smartspim_tissue_segmentation/smartspim_tissue_segmentation.ckpt", help="Path to the model checkpoint.")
-    parser.add_argument("--output_folder", type=str, default=os.path.abspath("../results"), help="Folder to store results.")
-    parser.add_argument("--target_size_mb", type=int, default=2048, help="Target size in MB.")
+    parser.add_argument(
+        "--image_path", type=str, required=True, help="Path to the input image."
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default="../data/smartspim_tissue_segmentation/smartspim_tissue_segmentation.ckpt",
+        help="Path to the model checkpoint.",
+    )
+    parser.add_argument(
+        "--output_folder",
+        type=str,
+        default=os.path.abspath("../results"),
+        help="Folder to store results.",
+    )
+    parser.add_argument(
+        "--target_size_mb", type=int, default=2048, help="Target size in MB."
+    )
     parser.add_argument("--n_workers", type=int, default=0, help="Number of workers.")
-    parser.add_argument("--super_chunksize", type=int, default=None, help="Super chunk size.")
+    parser.add_argument(
+        "--super_chunksize", type=int, default=None, help="Super chunk size."
+    )
     parser.add_argument("--scale", type=int, default=3, help="Scale factor.")
-    parser.add_argument("--scratch_folder", type=str, default=os.path.abspath("../scratch"), help="Scratch folder.")
+    parser.add_argument(
+        "--scratch_folder",
+        type=str,
+        default=os.path.abspath("../scratch"),
+        help="Scratch folder.",
+    )
     parser.add_argument("--image_height", type=int, default=1024, help="Image height.")
     parser.add_argument("--image_width", type=int, default=1024, help="Image width.")
-    parser.add_argument("--prob_threshold", type=float, default=0.7, help="Probability threshold.")
+    parser.add_argument(
+        "--prob_threshold", type=float, default=0.7, help="Probability threshold."
+    )
 
     args = parser.parse_args()
 
@@ -847,5 +890,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # main()
-    run_multiple_datasets()
+    main()
+    # run_multiple_datasets()
