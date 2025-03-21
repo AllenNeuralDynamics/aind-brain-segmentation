@@ -31,6 +31,22 @@ The model was trained with a resolution of **14.4 microns in XY** and **16 micro
 | `segmentation_mask.zarr` | Segmentation mask in the original image space (before resizing). |
 | `data.zarr` | Raw input data used for segmentation (optional). |
 
+## Brain Segmentation Examples
+
+<div align="center">
+    <video width="80%" controls>
+        <source src="/assets/SmartSPIM 771602.mp4" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+</div>
+
+<div align="center">
+    <video width="80%" controls>
+        <source src="/assets/SmartSPIM 782499.mp4" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+</div>
+
 ## Installation
 To install the package you can use the Dockerfile.
 
