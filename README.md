@@ -33,19 +33,11 @@ The model was trained with a resolution of **14.4 microns in XY** and **16 micro
 
 ## Brain Segmentation Examples
 
-<div align="center">
-    <video width="80%" controls>
-        <source src="/assets/SmartSPIM 771602.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-    </video>
-</div>
+### Sample 771602
+https://github.com/user-attachments/assets/1021a3a3-cfa1-460c-b1d7-29746ecf764c
 
-<div align="center">
-    <video width="80%" controls>
-        <source src="/assets/SmartSPIM 782499.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-    </video>
-</div>
+### Sample 782499
+https://github.com/user-attachments/assets/66ec0a36-6798-4081-98e4-b6e744355e99
 
 ## Installation
 To install the package you can use the Dockerfile.
