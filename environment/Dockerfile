@@ -32,6 +32,7 @@ RUN pip install --no-cache \
     monai[all]==1.4.0 \
     kornia==0.8.0 \
     boto3==1.37.9 \
-    opencv-python==4.11.0.86
+    opencv-python==4.11.0.86 \
+    safetensors==0.5.3
 
 RUN conda install conda-forge::awscli
